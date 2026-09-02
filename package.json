@@ -4,15 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
-    "start": "next start -p 3000",
-    "worker": "tsx src/worker/run.ts cron",
-    "ingest": "tsx src/worker/run.ts once",
-    "backfill": "tsx src/worker/run.ts backfill",
-    "reclassify": "tsx src/worker/run.ts reclassify",
-    "fix-phones": "tsx src/worker/run.ts fix",
-    "reindex": "tsx -e \"import './src/lib/env'; import {rebuildSearchIndex} from './src/lib/db'; console.log('فُهرس', rebuildSearchIndex(), 'منشور')\""
+    "dev": "node scripts/with-sqlite.cjs npx next dev -p 3000",
+    "build": "node scripts/with-sqlite.cjs npx next build",
+    "start": "node scripts/with-sqlite.cjs npx next start -p 3000",
+    "worker": "node scripts/with-sqlite.cjs npx tsx src/worker/run.ts cron",
+    "ingest": "node scripts/with-sqlite.cjs npx tsx src/worker/run.ts once",
+    "backfill": "node scripts/with-sqlite.cjs npx tsx src/worker/run.ts backfill",
+    "reclassify": "node scripts/with-sqlite.cjs npx tsx src/worker/run.ts reclassify",
+    "fix-phones": "node scripts/with-sqlite.cjs npx tsx src/worker/run.ts fix",
+    "reindex": "node scripts/with-sqlite.cjs npx tsx -e \"import './src/lib/env'; import {rebuildSearchIndex} from './src/lib/db'; console.log('فُهرس', rebuildSearchIndex(), 'منشور')\"",
+    "settings": "node scripts/with-sqlite.cjs npx tsx scripts/print-settings.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
@@ -30,6 +31,6 @@
     "typescript": "^5.9.2"
   },
   "engines": {
-    "node": ">=23.4.0"
+    "node": ">=22.5.0"
   }
 }

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
 #  تنصيب موقع وظائف ديالى على سيرفر Plesk أو أي VPS
-#  التشغيل:  sudo bash deploy/setup.sh
+#  التشغيل:  bash deploy/setup.sh
+#  ما يحتاج صلاحيات root — يشتغل بحساب المستخدم العادي
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -20,12 +21,49 @@ fi
 NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]")
 NODE_MINOR=$(node -p "process.versions.node.split('.')[1]")
 echo "   النسخة الحالية: $(node -v)"
-if [ "$NODE_MAJOR" -lt 23 ] || { [ "$NODE_MAJOR" -eq 23 ] && [ "$NODE_MINOR" -lt 4 ]; }; then
-  echo "❌ لازم Node 23.4 أو أحدث (يُنصح بـ 24). نصّبه:"
-  echo "   curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt install -y nodejs"
-  exit 1
+
+node_ok() { [ "$1" -gt 22 ] || { [ "$1" -eq 22 ] && [ "$2" -ge 5 ]; }; }
+
+if ! node_ok "$NODE_MAJOR" "$NODE_MINOR"; then
+  echo "   ⚠️  النسخة قديمة — ندوّر على نسخة أحدث بالسيرفر..."
+  FOUND=""
+  # Plesk يخزن نسخ Node هنا
+  for d in /opt/plesk/node/*/bin /usr/local/n/versions/node/*/bin "$HOME/.nvm/versions/node"/*/bin; do
+    [ -x "$d/node" ] || continue
+    V=$("$d/node" -p "process.versions.node" 2>/dev/null) || continue
+    M=${V%%.*}; R=${V#*.}; R=${R%%.*}
+    if node_ok "$M" "$R"; then FOUND="$d"; fi
+  done
+
+  if [ -n "$FOUND" ]; then
+    export PATH="$FOUND:$PATH"
+    echo "   ✅ لكينا نسخة أحدث: $("$FOUND/node" -v) بـ $FOUND"
+    echo "   💡 خليها دائمة:  echo 'export PATH=\"$FOUND:\$PATH\"' >> ~/.bashrc"
+    NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]")
+    NODE_MINOR=$(node -p "process.versions.node.split('.')[1]")
+  else
+    echo
+    echo "❌ لازم Node 22.5 أو أحدث. خيارات:"
+    echo
+    echo "   ١) من لوحة Plesk (الأسهل):"
+    echo "      Extensions → Node.js → نصّب نسخة 22 أو أحدث"
+    echo "      وبعدها: Domains → دومينك → Node.js → اختار النسخة"
+    echo
+    echo "   ٢) بدون صلاحيات root (nvm):"
+    echo "      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
+    echo "      source ~/.nvm/nvm.sh && nvm install 24 && nvm alias default 24"
+    echo
+    echo "   ٣) بصلاحيات root:"
+    echo "      curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt install -y nodejs"
+    exit 1
+  fi
 fi
-echo "   ✅ النسخة كافية"
+
+if [ "$NODE_MAJOR" -lt 23 ] || { [ "$NODE_MAJOR" -eq 23 ] && [ "$NODE_MINOR" -lt 4 ]; }; then
+  echo "   ✅ النسخة مدعومة (راح نضيف راية --experimental-sqlite تلقائياً)"
+else
+  echo "   ✅ النسخة كافية"
+fi
 
 # ——— ٢) ملف الإعدادات ———
 echo
@@ -76,8 +114,15 @@ chmod 700 data 2>/dev/null || true
 chmod 600 .env.local 2>/dev/null || true
 
 # إذا المشروع داخل httpdocs، نمنع الوصول المباشر للملفات الحساسة
-if [[ "$APP_DIR" == *"httpdocs"* ]] || [[ "$APP_DIR" == *"public_html"* ]]; then
-  echo "   ⚠️  المشروع داخل مجلد الويب — نضيف حماية"
+WEB_EXPOSED=0
+case "$APP_DIR" in
+  *httpdocs*|*public_html*|*/www/*) WEB_EXPOSED=1 ;;
+esac
+# بـ Plesk مجلد النطاق الفرعي نفسه ممكن يكون هو جذر الويب
+if [ -d "$APP_DIR/../conf" ] && [ ! -d "$APP_DIR/httpdocs" ]; then WEB_EXPOSED=1; fi
+
+if [ "$WEB_EXPOSED" = "1" ]; then
+  echo "   ⚠️  المجلد ممكن يكون مكشوف للويب — نضيف حماية"
   cat > .htaccess <<'HTA'
 # منع الوصول المباشر لأي ملف حساس
 <FilesMatch "^(\.env.*|.*\.db|.*\.db-.*|package.*\.json|.*\.ts|.*\.tsx)$">
@@ -95,12 +140,11 @@ fi
 # ——— ٤) تنصيب الحزم والبناء ———
 echo
 echo "═══ ٤) تنصيب الحزم ═══"
-npm ci --omit=dev --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
 echo "   ✅ الحزم انصبّت"
 
 echo
 echo "═══ ٥) بناء الموقع ═══"
-npm install --no-audit --no-fund --silent   # نحتاج حزم التطوير للبناء
 npm run build
 echo "   ✅ البناء تم"
 
@@ -119,7 +163,9 @@ fi
 pm2 delete jobs-web jobs-worker 2>/dev/null || true
 pm2 start ecosystem.config.cjs
 pm2 save
-pm2 startup systemd -u "$(whoami)" --hp "$HOME" 2>/dev/null | tail -2 || true
+# التشغيل عند إقلاع السيرفر (يحتاج root — نطبع الأمر إذا ما نقدر)
+pm2 startup systemd -u "$(whoami)" --hp "$HOME" 2>/dev/null | tail -2 || \
+  echo "   💡 حتى يشتغل بعد إعادة تشغيل السيرفر، نفّذ الأمر اللي يطبعه: pm2 startup"
 
 echo
 echo "═══════════════════════════════════════════════"
