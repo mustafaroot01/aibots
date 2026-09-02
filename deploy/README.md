@@ -141,3 +141,41 @@ npm run build
 
 هذا يصير لما ينكتب تاريخ المستودع من جديد (مثلاً بعد إزالة سر مسرّب).
 الحل نفس الأمر أعلاه: `git reset --hard origin/main`.
+
+
+---
+
+## خلّي العامل شغال دائماً
+
+pm2 يشغّل العمليات كخادم مستقل — **تسكّر الترمنال وهي تظل شغالة**. بس فيه حالتين توقف بيهن:
+إعادة تشغيل السيرفر، وبعض إعدادات النظام اللي تقتل عمليات المستخدم عند الخروج.
+
+### الحل (بدون صلاحيات root)
+
+```bash
+bash deploy/keepalive.sh --install
+```
+
+يركّب مهمتين بـ cron:
+- **فحص كل ٥ دقايق** — إذا وقف شي يرجّعه
+- **`@reboot`** — يشتغل تلقائياً بعد إعادة تشغيل السيرفر
+
+للتأكد: `crontab -l | grep keepalive` · السجل: `data/keepalive.log`
+
+### إذا عندك root (أنظف)
+
+```bash
+sudo env PATH=$PATH:/opt/plesk/node/22/bin \
+  ./node_modules/.bin/pm2 startup systemd -u $(whoami) --hp $HOME
+./node_modules/.bin/pm2 save
+```
+
+بعدها systemd نفسه يشغّل pm2 عند الإقلاع. الحارس يظل مفيد كطبقة ثانية.
+
+### فحص يدوي
+
+```bash
+./node_modules/.bin/pm2 status          # لازم الاثنين online
+./node_modules/.bin/pm2 logs jobs-worker --lines 20
+bash deploy/keepalive.sh                # فحص فوري
+```
