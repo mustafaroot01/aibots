@@ -43,6 +43,13 @@ if [ "${1:-}" = "--install" ]; then
   exit 0
 fi
 
+# ——— تنبيه تعارض النسخ (يصير لما تنزّل نسخة pm2 والخادم شغال بنسخة ثانية) ———
+VER_MSG=$("$PM2" status 2>&1 | grep -c "out-of-date" || true)
+if [ "$VER_MSG" != "0" ]; then
+  say "نسخة pm2 بالذاكرة مختلفة عن المنصّبة — نحدّث الخادم"
+  "$PM2" update >/dev/null 2>&1
+fi
+
 # ——— الفحص ———
 RUNNING=$("$PM2" jlist 2>/dev/null | grep -o '"status":"online"' | wc -l | tr -d ' ')
 
