@@ -71,13 +71,23 @@ echo "═══ ٢) ملف الإعدادات ═══"
 if [ -f .env.local ]; then
   echo "   ✅ .env.local موجود — ما نلمسه"
 else
-  cat > .env.local <<'ENVFILE'
+  # المفاتيح ما تنكتب أبداً داخل ملفات المستودع — ننولّدها هنا ونسأل عن مفتاح جيمناي
+  GEN_ADMIN=$(openssl rand -base64 18 2>/dev/null | tr -d '/+=' | head -c 20)
+  GEN_SECRET=$(openssl rand -hex 32 2>/dev/null)
+
+  echo
+  echo "   محتاجين مفتاح Gemini (مجاني من https://aistudio.google.com/apikey)"
+  echo "   تكدر تتركه فارغ وتحطه بعدين — الموقع يشتغل بالكلمات المفتاحية لحد ذاك."
+  printf "   المفتاح: "
+  read -r GEN_GEMINI </dev/tty || GEN_GEMINI=""
+
+  cat > .env.local <<ENVFILE
 # ——— القناة المصدر ———
 TG_CHANNEL=Diyala_jobs
 
 # ——— الذكاء الاصطناعي ———
 AI_PROVIDER=gemini
-GEMINI_API_KEY=__PUT_YOUR_GEMINI_KEY_HERE__
+GEMINI_API_KEY=${GEN_GEMINI}
 GEMINI_MODEL=gemini-3.5-flash
 AI_RPM=4
 CLAUDE_MODEL=claude-opus-5
@@ -88,13 +98,13 @@ CLAUDE_BATCH_SIZE=12
 DB_PATH=./data/jobs.db
 POLL_SECONDS=180
 
-# ——— الأمان (مولّدة عشوائياً — لا تشاركها) ———
-ADMIN_TOKEN=__GENERATED_ON_SERVER__
-SECRET_KEY=__GENERATED_ON_SERVER__
+# ——— الأمان (مولّدة عشوائياً — لا تشاركها ولا ترفعها) ———
+ADMIN_TOKEN=${GEN_ADMIN}
+SECRET_KEY=${GEN_SECRET}
 
 # ——— الموقع ———
 SITE_NAME=وظائف ديالى
-SITE_URL=https://غيّرني-للدومين-مالك.com
+SITE_URL=https://jobs.diyala.org
 BRAND_CHANNEL=diyalajob
 
 # ——— النشر بقناتك (املأهن من لوحة التحكم) ———
@@ -103,8 +113,8 @@ TG_PUBLISH_CHANNEL=
 ENVFILE
   chmod 600 .env.local
   echo "   ✅ انبنى .env.local بمفاتيح عشوائية"
-  echo "   ⚠️  عدّل SITE_URL للدومين مالك: nano .env.local"
 fi
+
 
 # ——— ٣) حماية الملفات الحساسة ———
 echo
