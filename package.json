@@ -14,7 +14,8 @@
     "fix-phones": "node scripts/with-sqlite.cjs npx tsx src/worker/run.ts fix",
     "reindex": "node scripts/with-sqlite.cjs npx tsx -e \"import './src/lib/env'; import {rebuildSearchIndex} from './src/lib/db'; console.log('فُهرس', rebuildSearchIndex(), 'منشور')\"",
     "settings": "node scripts/with-sqlite.cjs npx tsx scripts/print-settings.ts",
-    "quota": "node scripts/with-sqlite.cjs npx tsx scripts/check-quota.ts"
+    "quota": "node scripts/with-sqlite.cjs npx tsx scripts/check-quota.ts",
+    "setup-bot": "node scripts/with-sqlite.cjs npx tsx scripts/setup-bot.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
