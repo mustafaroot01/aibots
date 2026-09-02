@@ -41,13 +41,17 @@ cd jobsapp
 ## ربط الدومين بالتطبيق
 
 ### Plesk
-Domains → دومينك → **Apache & nginx Settings**:
 
-1. شيل صح ☐ **Proxy mode**
-2. بخانة **Additional nginx directives** حط:
+**Domains → دومينك → Apache & nginx Settings**
+
+**١) شيل الصح عن هذي الخيارات:**
+- ☐ **Proxy mode**
+- ☐ **Serve static files directly by nginx** (أو "Smart static files processing")
+
+**٢) بخانة «Additional nginx directives» حط:**
 
 ```nginx
-location / {
+location ~ ^/ {
     proxy_pass http://127.0.0.1:3000;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
@@ -57,12 +61,24 @@ location / {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_cache_bypass $http_upgrade;
+    proxy_read_timeout 300;
 }
 ```
 
-3. احفظ، وفعّل **SSL/TLS Certificates → Let's Encrypt**
+> **ليش `location ~ ^/` مو `location /`؟**
+> Plesk يولّد `location /` بنفسه، وإذا كتبت واحد مثله يطلع خطأ:
+> `duplicate location "/"`.
+> `~ ^/` تعبير نمطي يطابق كل المسارات، و nginx يعطي التعابير النمطية أولوية
+> أعلى من المطابقة بالبادئة — يعني كل الطلبات تروح للتطبيق.
+
+**٣) Apply** ثم **SSL/TLS Certificates → Let's Encrypt**
 
 > **مهم:** `X-Forwarded-Proto` ضروري — بدونه كوكي لوحة التحكم ما تكون Secure.
+
+#### إذا ظل يطلع خطأ
+
+جرّب تعطّل **nginx caching** من نفس الصفحة، أو استخدم إضافة **Node.js** بـ Plesk:
+Extensions → Node.js → Application Root = مجلد المشروع، Startup File = `node_modules/next/dist/bin/next`.
 
 ### nginx عادي (بدون Plesk)
 
