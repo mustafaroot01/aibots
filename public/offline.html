@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ما موجود اتصال</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; min-height: 100dvh;
+    display: grid; place-items: center; padding: 24px;
+    font-family: system-ui, "Segoe UI", Tahoma, sans-serif;
+    background: #f5f7f8; color: #0f1720; text-align: center;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #0a0e12; color: #e8eef4; } }
+  .box { max-width: 340px; }
+  .mark {
+    width: 68px; height: 68px; margin: 0 auto 20px; border-radius: 20px;
+    background: linear-gradient(140deg, #10a37f, #075e48);
+    display: grid; place-items: center;
+  }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p { color: #67788a; font-size: 14.5px; line-height: 1.8; margin: 0 0 22px; }
+  button {
+    font: inherit; font-weight: 700; font-size: 15px;
+    background: #0b7a5e; color: #fff; border: 0;
+    padding: 13px 28px; border-radius: 14px; cursor: pointer;
+  }
+  button:active { transform: scale(.97); }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="mark">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+      </svg>
+    </div>
+    <h1>ما موجود اتصال بالإنترنت</h1>
+    <p>تأكد من الاتصال وحاول مرة ثانية. الوظائف اللي فتحتها سابقاً تظل متاحة.</p>
+    <button onclick="location.reload()">إعادة المحاولة</button>
+  </div>
+</body>
+</html>

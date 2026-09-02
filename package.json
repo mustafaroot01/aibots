@@ -1,0 +1,35 @@
+{
+  "name": "diyala-jobs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "worker": "tsx src/worker/run.ts cron",
+    "ingest": "tsx src/worker/run.ts once",
+    "backfill": "tsx src/worker/run.ts backfill",
+    "reclassify": "tsx src/worker/run.ts reclassify",
+    "fix-phones": "tsx src/worker/run.ts fix",
+    "reindex": "tsx -e \"import './src/lib/env'; import {rebuildSearchIndex} from './src/lib/db'; console.log('فُهرس', rebuildSearchIndex(), 'منشور')\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
+    "@google/genai": "^2.20.0",
+    "cheerio": "^1.1.2",
+    "next": "^15.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "@types/react": "^19.1.13",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=23.4.0"
+  }
+}
