@@ -60,7 +60,11 @@ function migrate(d: DatabaseSync) {
       tags          TEXT NOT NULL DEFAULT '[]',
       search_blob   TEXT NOT NULL DEFAULT '',
       classified_at TEXT,
-      classifier    TEXT
+      classifier    TEXT,
+      tg_status     TEXT NOT NULL DEFAULT 'idle',
+      tg_message_id INTEGER,
+      tg_sent_at    TEXT,
+      tg_error      TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_posts_status_date ON posts(status, posted_ts DESC);
@@ -71,8 +75,6 @@ function migrate(d: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_pub_city ON posts(city)     WHERE status = 'published';
     CREATE INDEX IF NOT EXISTS idx_pub_cat  ON posts(category) WHERE status = 'published';
     CREATE INDEX IF NOT EXISTS idx_pub_type ON posts(employment_type) WHERE status = 'published';
-    CREATE INDEX IF NOT EXISTS idx_tg_queue ON posts(tg_status, posted_ts) WHERE status = 'published';
-
     -- فهرس الكلمات: مرتّب بالتاريخ حتى يوقف البحث بأول ٢٠ نتيجة بدل ما يمسح الجدول
     CREATE TABLE IF NOT EXISTS search_tokens (
       token     TEXT NOT NULL,
@@ -130,6 +132,9 @@ function migrate(d: DatabaseSync) {
   add("tg_message_id", "INTEGER");
   add("tg_sent_at", "TEXT");
   add("tg_error", "TEXT");
+
+  // الفهارس اللي تعتمد على أعمدة مضافة لاحقاً — بعد ما نتأكد إنها موجودة
+  d.exec(`CREATE INDEX IF NOT EXISTS idx_tg_queue ON posts(tg_status, posted_ts) WHERE status = 'published'`);
 
   // تعبئة الوقت الرقمي للصفوف القديمة
   const stale = d.prepare(`SELECT id, posted_at FROM posts WHERE posted_ts = 0 AND posted_at IS NOT NULL`).all() as any[];

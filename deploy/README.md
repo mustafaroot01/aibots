@@ -78,9 +78,12 @@ sudo certbot --nginx -d موقعك.com
 
 ## أوامر التشغيل
 
+> إذا انصبّ pm2 داخل المشروع (ما عندك صلاحيات عامة)، بدّل `pm2` بـ `./node_modules/.bin/pm2`
+> أو سوّي اختصار: `alias pm2=./node_modules/.bin/pm2`
+
 | الأمر | الوظيفة |
 |---|---|
-| `bash deploy/setup.sh` | تنصيب كامل من الصفر |
+| `bash deploy/setup.sh` | تنصيب كامل من الصفر (ما يحتاج root) |
 | `pm2 status` | حالة التطبيق والعامل |
 | `pm2 logs jobs-worker` | متابعة السحب والفلترة مباشرة |
 | `pm2 restart all` | إعادة تشغيل |

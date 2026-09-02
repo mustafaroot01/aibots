@@ -156,16 +156,32 @@ npm run backfill 5 || echo "   ⚠️ الأرشفة فشلت — ما تأثر�
 # ——— ٧) pm2 ———
 echo
 echo "═══ ٧) التشغيل الدائم ═══"
-if ! command -v pm2 >/dev/null 2>&1; then
-  echo "   نصّب pm2..."
-  npm install -g pm2
+
+# نجرب pm2 العام، وإذا ما موجود ولا نقدر ننصّبه عام ننصّبه داخل المشروع
+PM2=""
+if command -v pm2 >/dev/null 2>&1; then
+  PM2="pm2"
+elif [ -x "./node_modules/.bin/pm2" ]; then
+  PM2="./node_modules/.bin/pm2"
+else
+  echo "   ننصّب pm2..."
+  if npm install -g pm2 --silent >/dev/null 2>&1 && command -v pm2 >/dev/null 2>&1; then
+    PM2="pm2"
+    echo "   ✅ pm2 انصبّ عام"
+  else
+    echo "   (ما عدنا صلاحيات للتنصيب العام — ننصّبه داخل المشروع)"
+    npm install pm2 --save-dev --no-audit --no-fund --silent
+    PM2="./node_modules/.bin/pm2"
+    echo "   ✅ pm2 انصبّ داخل المشروع"
+  fi
 fi
-pm2 delete jobs-web jobs-worker 2>/dev/null || true
-pm2 start ecosystem.config.cjs
-pm2 save
-# التشغيل عند إقلاع السيرفر (يحتاج root — نطبع الأمر إذا ما نقدر)
-pm2 startup systemd -u "$(whoami)" --hp "$HOME" 2>/dev/null | tail -2 || \
-  echo "   💡 حتى يشتغل بعد إعادة تشغيل السيرفر، نفّذ الأمر اللي يطبعه: pm2 startup"
+
+"$PM2" delete jobs-web jobs-worker >/dev/null 2>&1 || true
+"$PM2" start ecosystem.config.cjs
+"$PM2" save >/dev/null 2>&1 || true
+
+# التشغيل عند إقلاع السيرفر (يحتاج root)
+STARTUP_CMD=$("$PM2" startup systemd -u "$(whoami)" --hp "$HOME" 2>/dev/null | grep -E "^sudo" || true)
 
 echo
 echo "═══════════════════════════════════════════════"
@@ -190,7 +206,12 @@ echo
 echo "   • nginx عادي: انسخ deploy/nginx.conf وعدّل server_name"
 echo
 echo "   أوامر مفيدة:"
-echo "     pm2 logs jobs-worker    ← متابعة السحب والفلترة"
-echo "     pm2 restart all         ← إعادة تشغيل"
-echo "     pm2 status              ← الحالة"
+echo "     $PM2 status              ← الحالة"
+echo "     $PM2 logs jobs-worker    ← متابعة السحب والفلترة"
+echo "     $PM2 restart all         ← إعادة تشغيل"
+if [ -n "$STARTUP_CMD" ]; then
+  echo
+  echo "   حتى يشتغل بعد إعادة تشغيل السيرفر، نفّذ (يحتاج root):"
+  echo "     $STARTUP_CMD"
+fi
 echo "═══════════════════════════════════════════════"
