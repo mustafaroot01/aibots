@@ -103,3 +103,25 @@ sudo certbot --nginx -d موقعك.com
 ```bash
 cp data/jobs.db ~/backup-$(date +%F).db
 ```
+
+
+---
+
+## تحديث المشروع على السيرفر
+
+```bash
+cd /var/www/vhosts/diyala.org/jobs.diyala.org
+git fetch origin
+git reset --hard origin/main    # يتجاوز أي اختلاف بالتاريخ
+npm install --no-audit --no-fund
+npm run build
+./node_modules/.bin/pm2 restart all
+```
+
+> `git reset --hard` **ما يمس** `.env.local` ولا `data/jobs.db` ولا `node_modules` —
+> كلهن خارج تتبّع git. يرجّع بس ملفات الكود لآخر نسخة.
+
+### إذا طلعت «divergent branches»
+
+هذا يصير لما ينكتب تاريخ المستودع من جديد (مثلاً بعد إزالة سر مسرّب).
+الحل نفس الأمر أعلاه: `git reset --hard origin/main`.

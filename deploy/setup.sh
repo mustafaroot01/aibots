@@ -148,6 +148,7 @@ HTA
 fi
 
 # ——— ٤) تنصيب الحزم والبناء ———
+# (لتحديث سريع بدون تعبئة: UPDATE_ONLY=1 bash deploy/setup.sh)
 echo
 echo "═══ ٤) تنصيب الحزم ═══"
 npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
@@ -161,7 +162,11 @@ echo "   ✅ البناء تم"
 # ——— ٦) تعبئة أولية ———
 echo
 echo "═══ ٦) تعبئة أولية من القناة ═══"
-npm run backfill 5 || echo "   ⚠️ الأرشفة فشلت — ما تأثر، العامل راح يجيب الجديد"
+if [ "${UPDATE_ONLY:-0}" = "1" ]; then
+  echo "   (تخطيناها — وضع التحديث)"
+else
+  npm run backfill 5 || echo "   ⚠️ الأرشفة فشلت — ما تأثر، العامل راح يجيب الجديد"
+fi
 
 # ——— ٧) pm2 ———
 echo

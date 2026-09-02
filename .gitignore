@@ -9,3 +9,4 @@ deploy/env.production
 tsconfig.tsbuildinfo
 next-env.d.ts
 .DS_Store
+.htaccess
