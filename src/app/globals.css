@@ -1110,3 +1110,19 @@ main.wrap { padding-bottom: calc(40px + var(--safe-b)); }
   transition: height .3s var(--ease);
 }
 .spark-bar:hover i { background: var(--brand-strong); }
+
+/* نص المدونة */
+.blog-body {
+  white-space: pre-wrap; word-break: break-word;
+  font-size: 17px; line-height: 2.1; color: var(--text-2);
+  margin-top: 6px;
+}
+@media (min-width: 640px) { .blog-body { font-size: 18px; } }
+
+/* رابط بالهيدر */
+.nav-link {
+  font-size: 13.5px; font-weight: 700; color: var(--text-2);
+  padding: 8px 12px; border-radius: var(--r-full);
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+.nav-link:hover { background: var(--surface-2); color: var(--brand-ink); }

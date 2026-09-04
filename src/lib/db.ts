@@ -87,6 +87,21 @@ function migrate(d: DatabaseSync) {
 
     CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
+    CREATE TABLE IF NOT EXISTS blog (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind        TEXT NOT NULL,
+      title       TEXT NOT NULL,
+      body        TEXT NOT NULL,
+      slug        TEXT NOT NULL,
+      created_ts  INTEGER NOT NULL,
+      author      TEXT NOT NULL DEFAULT 'bot',
+      tg_status   TEXT NOT NULL DEFAULT 'idle',
+      tg_message_id INTEGER,
+      views       INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_blog_date ON blog(created_ts DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_slug ON blog(slug);
+
     CREATE TABLE IF NOT EXISTS visits (
       day     TEXT PRIMARY KEY,
       views   INTEGER NOT NULL DEFAULT 0,
@@ -628,4 +643,86 @@ export function visitStats(): VisitStats {
       `SELECT day, views, uniques FROM visits ORDER BY day DESC LIMIT 14`
     ).all() as never,
   };
+}
+
+
+// ————— المدونة —————
+
+export interface BlogPost {
+  id: number;
+  kind: string;
+  title: string;
+  body: string;
+  slug: string;
+  created_ts: number;
+  author: string;
+  tg_status: string;
+  tg_message_id: number | null;
+  views: number;
+}
+
+/** يبني رابطاً عربياً نظيفاً من العنوان */
+export function slugify(title: string, id?: number): string {
+  const base = normalizeAr(title)
+    .replace(/\s+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 60)
+    .replace(/^-|-$/g, "");
+  return id ? `${id}-${base}` : base;
+}
+
+export function addBlogPost(p: { kind: string; title: string; body: string; author?: string }): BlogPost {
+  const now = Math.floor(Date.now() / 1000);
+  const info = db().prepare(`
+    INSERT INTO blog (kind, title, body, slug, created_ts, author, tg_status)
+    VALUES (@kind, @title, @body, @slug, @ts, @author, 'queued')
+  `).run({
+    kind: p.kind, title: p.title, body: p.body,
+    slug: `tmp-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    ts: now, author: p.author ?? "bot",
+  });
+
+  const id = Number(info.lastInsertRowid);
+  db().prepare(`UPDATE blog SET slug = ? WHERE id = ?`).run(slugify(p.title, id), id);
+  return getBlogPost(id)!;
+}
+
+export function getBlogPost(idOrSlug: number | string): BlogPost | null {
+  const row = typeof idOrSlug === "number"
+    ? db().prepare(`SELECT * FROM blog WHERE id = ?`).get(idOrSlug)
+    : db().prepare(`SELECT * FROM blog WHERE slug = ? OR id = ?`).get(idOrSlug, Number(idOrSlug) || -1);
+  return (row as unknown as BlogPost) ?? null;
+}
+
+export function listBlog(limit = 20, page = 1): { rows: BlogPost[]; total: number } {
+  const rows = db().prepare(
+    `SELECT * FROM blog ORDER BY created_ts DESC LIMIT ? OFFSET ?`
+  ).all(limit, (page - 1) * limit) as unknown as BlogPost[];
+  const total = Number((db().prepare(`SELECT COUNT(*) c FROM blog`).get() as any).c);
+  return { rows, total };
+}
+
+export function blogAwaitingTelegram(limit = 3): BlogPost[] {
+  return db().prepare(
+    `SELECT * FROM blog WHERE tg_status = 'queued' ORDER BY created_ts ASC LIMIT ?`
+  ).all(limit) as unknown as BlogPost[];
+}
+
+export function markBlogTelegram(id: number, ok: boolean, messageId?: number) {
+  db().prepare(`UPDATE blog SET tg_status = ?, tg_message_id = ? WHERE id = ?`)
+    .run(ok ? "sent" : "failed", messageId ?? null, id);
+}
+
+export function bumpBlogViews(id: number) {
+  db().prepare(`UPDATE blog SET views = views + 1 WHERE id = ?`).run(id);
+}
+
+/** آخر عناوين المدونة — نمررها للموديل حتى ما يكرر نفسه */
+export function recentBlogTitles(n = 25): string[] {
+  return (db().prepare(`SELECT title FROM blog ORDER BY created_ts DESC LIMIT ?`).all(n) as any[])
+    .map((r) => r.title);
+}
+
+export function deleteBlogPost(id: number) {
+  db().prepare(`DELETE FROM blog WHERE id = ?`).run(id);
 }

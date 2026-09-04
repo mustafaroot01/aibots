@@ -1,7 +1,8 @@
 import { guardPage } from "@/lib/auth";
 import { getSettings, EFFORTS, MODELS, GEMINI_MODELS, PROVIDERS, listToText, channelsToText, settingsHealth } from "@/lib/settings";
 import { parseServiceAccount } from "@/lib/indexing";
-import { DEFAULT_QUOTES, buildPromo, hoursUntilPromo } from "@/lib/promo";
+import { FORMATS, hoursUntilBlog } from "@/lib/blog";
+import { listBlog } from "@/lib/db";
 import { searchJobs } from "@/lib/db";
 import { renderMessage } from "@/lib/publisher";
 import { providerStatus } from "@/lib/classify";
@@ -9,9 +10,10 @@ import { Toast } from "@/components/toast";
 import { ConfirmButton } from "@/components/confirm";
 import { SecretField, SettingsCard, Toggle } from "@/components/form-bits";
 import { Alert, Briefcase, Building, Search, Telegram, Users } from "@/components/icons";
+import { timeAgo } from "@/lib/format";
 import {
-  newIndexKeyAction, pingIndexAction, promoNowAction, resetSettingsAction,
-  saveSettingsAction, sendTestAction, testBotAction,
+  blogNowAction, deleteBlogAction, newIndexKeyAction, pingIndexAction,
+  resetSettingsAction, saveSettingsAction, sendTestAction, testBotAction,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +26,7 @@ const SECTIONS = [
   { id: "source", label: "المصدر" },
   { id: "ai", label: "الفلترة" },
   { id: "publish", label: "النشر بقناتك" },
-  { id: "promo", label: "المنشور الدوري" },
+  { id: "blog", label: "المدونة" },
   { id: "indexing", label: "محركات البحث" },
   { id: "display", label: "العرض" },
   { id: "danger", label: "إعادة ضبط" },
@@ -36,10 +38,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const s = getSettings();
   const h = settingsHealth(s);
   const ps = providerStatus();
-  const promoLeft = s.promo_enabled ? hoursUntilPromo(s) : null;
-  const promoPreview = (buildPromo(s)?.text ?? "")
-    .replace(/<\/?(b|i)>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    || "ما موجود محتوى للمعاينة";
+  const blogLeft = s.blog_enabled ? hoursUntilBlog(s) : null;
+  const { rows: blogPosts, total: blogTotal } = listBlog(5, 1);
 
   const sample = searchJobs({ perPage: 1, page: 1 }).rows[0];
   const preview = sample
@@ -359,47 +359,43 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </SettingsCard>
       </form>
 
-      {/* ————— المنشور الدوري ————— */}
+      {/* ————— المدونة ————— */}
       <form action={saveSettingsAction}>
-        <input type="hidden" name="section" value="promo" />
+        <input type="hidden" name="section" value="blog" />
         <SettingsCard
-          id="promo"
-          title={<><Telegram /> ٥. المنشور الدوري</>}
-          badge={s.promo_enabled ? `كل ${s.promo_interval_hours} ساعة` : "مطفي"}
-          badgeTone={s.promo_enabled ? "" : "muted"}
+          id="blog"
+          title={<><Briefcase /> ٥. المدونة — محتوى تحفيزي</>}
+          badge={s.blog_enabled ? `${s.blog_per_day} يومياً` : "مطفي"}
+          badgeTone={s.blog_enabled ? "" : "muted"}
           hint={<>
-            منشور تفاعلي بقناتك على فترات — اقتباس تشجيعي لطالبي العمل + وظيفة من موقعك،
-            مع <b>إفصاح واضح إن الناشر بوت</b>.
-            {promoLeft !== null && s.promo_enabled && (
-              <> · الجاي بعد <b>{promoLeft.toFixed(1)} ساعة</b></>
-            )}
+            الذكاء الاصطناعي يكتب محتوى <b>أصلي</b> لطالبي العمل — اقتباس، قصة، نصيحة،
+            خطأ شائع... بشكل مختلف كل مرة. ينشر بصفحة <b>/blog</b> بموقعك، وبقناتك
+            مع رابط الموقع فقط.
+            {blogLeft !== null && <> · الجاي بعد <b>{blogLeft.toFixed(1)} ساعة</b></>}
           </>}
           extraButtons={
-            <button className="btn" type="submit" formAction={promoNowAction} formNoValidate>
-              انشر الآن (تجربة)
+            <button className="btn" type="submit" formAction={blogNowAction} formNoValidate>
+              ولّد منشور الآن
             </button>
           }
         >
-          <Toggle name="promo_enabled" label="تفعيل المنشور الدوري"
-            hint="يحتاج النشر بالقناة يكون مفعّل"
-            defaultChecked={s.promo_enabled} />
+          <Toggle name="blog_enabled" label="تفعيل المدونة"
+            hint="يحتاج مفتاح Gemini"
+            defaultChecked={s.blog_enabled} />
 
           <div className="form-grid two" style={{ marginTop: 14 }}>
             <div className="field">
-              <label htmlFor="promo_interval_hours">كل كم ساعة</label>
-              <input id="promo_interval_hours" name="promo_interval_hours" type="number"
-                inputMode="numeric" min={1} max={168} defaultValue={s.promo_interval_hours} />
-              <div className="desc">١٢ يعني مرتين باليوم.</div>
+              <label htmlFor="blog_per_day">منشورات باليوم</label>
+              <input id="blog_per_day" name="blog_per_day" type="number" inputMode="numeric"
+                min={1} max={12} defaultValue={s.blog_per_day} />
+              <div className="desc">
+                تتوزع بالتساوي على ٢٤ ساعة — {s.blog_per_day} يعني كل {(24 / Math.max(1, s.blog_per_day)).toFixed(0)} ساعات.
+              </div>
             </div>
             <div className="field" style={{ alignSelf: "end" }}>
-              <Toggle name="promo_include_job" label="أرفق وظيفة من الموقع"
-                hint="يختار وحدة حديثة، يفضّل اللي بيها رقم تواصل"
-                defaultChecked={s.promo_include_job} />
-            </div>
-            <div className="field">
-              <Toggle name="promo_include_photo" label="أرفق صورة الوظيفة"
-                hint="إذا كان الإعلان الأصلي بيه صورة"
-                defaultChecked={s.promo_include_photo} />
+              <Toggle name="blog_publish_channel" label="انشرها بقناتك"
+                hint="النص + رابط الموقع فقط"
+                defaultChecked={s.blog_publish_channel} />
             </div>
           </div>
 
@@ -407,30 +403,46 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <label htmlFor="bot_disclosure">إفصاح البوت</label>
             <input id="bot_disclosure" name="bot_disclosure" type="text"
               defaultValue={s.bot_disclosure} maxLength={300} />
-            <div className="desc">
-              ينضاف بآخر كل منشور دوري. <b>لا تشيله</b> — الشفافية تبني ثقة المتابعين.
-            </div>
+            <div className="desc">ينضاف بآخر كل منشور بالقناة.</div>
           </div>
 
           <div className="field" style={{ marginTop: 14 }}>
-            <label htmlFor="promo_quotes">الاقتباسات (وحدة بكل سطر)</label>
-            <textarea id="promo_quotes" name="promo_quotes" dir="rtl"
-              defaultValue={(s.promo_quotes.length ? s.promo_quotes : DEFAULT_QUOTES).join("\n")}
-              style={{ minHeight: 190, lineHeight: 2 }} />
-            <div className="desc">
-              يختار وحدة عشوائياً ولا يكررها لحد ما تخلص القائمة.
-              {!s.promo_quotes.length && " (هذي الاقتباسات الافتراضية — عدّلها براحتك)"}
-            </div>
+            <label htmlFor="blog_extra">توجيه إضافي للكاتب (اختياري)</label>
+            <textarea id="blog_extra" name="blog_extra" defaultValue={s.blog_extra}
+              placeholder="مثال: ركّز على وظائف القطاع الخاص بديالى. تجنب المواضيع السياسية."
+              style={{ minHeight: 80 }} />
           </div>
 
           <div className="field" style={{ marginTop: 14 }}>
-            <label htmlFor="promo_footer">سطر إضافي (اختياري)</label>
-            <input id="promo_footer" name="promo_footer" type="text"
-              defaultValue={s.promo_footer} placeholder="مثال: 📢 شارك القناة مع صديق يدور على شغل" />
+            <label htmlFor="blog_footer">سطر إضافي بالقناة (اختياري)</label>
+            <input id="blog_footer" name="blog_footer" type="text" defaultValue={s.blog_footer}
+              placeholder="مثال: 📢 شارك مع صديق يدور على شغل" />
           </div>
 
-          <div className="section-label">معاينة</div>
-          <div className="preview-box">{promoPreview}</div>
+          <div className="section-label">الأشكال اللي يتناوب عليها ({FORMATS.length})</div>
+          <div className="tpl-help">
+            {FORMATS.map((f) => <code key={f.id}>{f.label}</code>)}
+          </div>
+
+          {blogTotal > 0 && (
+            <>
+              <div className="section-label">آخر المنشورات ({blogTotal})</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {blogPosts.map((p) => (
+                  <div key={p.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+                    <span className={`badge ${p.tg_status === "sent" ? "published" : ""}`}>
+                      {p.tg_status === "sent" ? "بالقناة" : p.tg_status === "failed" ? "فشل" : "بالموقع"}
+                    </span>
+                    <a href={`/blog/${p.slug}`} target="_blank" rel="noopener"
+                       style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.title}
+                    </a>
+                    <span style={{ color: "var(--muted)", fontSize: 11.5 }}>{timeAgo(p.created_ts)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </SettingsCard>
       </form>
 

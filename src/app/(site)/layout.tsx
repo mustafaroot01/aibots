@@ -22,6 +22,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
               <span className="brand-sub">شواغر محدّثة على مدار الساعة</span>
             </span>
           </a>
+          <a href="/blog" className="nav-link">المدونة</a>
           <span className="spacer" />
           <InstallButton />
           {channel && (
@@ -56,6 +57,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
 
           <nav className="footer-links">
             <a href="/">الرئيسية</a>
+            <a href="/blog">المدونة</a>
             <a href="/feed.xml">خلاصة RSS</a>
             <a href="/api/jobs">واجهة البيانات</a>
             <a href="/sitemap.xml">خريطة الموقع</a>

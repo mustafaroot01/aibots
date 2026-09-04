@@ -7,10 +7,10 @@ import {
 } from "@/lib/db";
 import { attemptLogin, requireAdmin, safeBack, setLoginError, signOut, signOutEverywhere } from "@/lib/auth";
 import { getSettings, resetSettings, saveSettings, textToList, type Settings } from "@/lib/settings";
-import { ingestOnce, markForReclassify, processPending, publishQueued, runPromo } from "@/lib/ingest";
+import { ingestOnce, markForReclassify, processPending, publishQueued, runBlog } from "@/lib/ingest";
 import { publishJob, sendTestMessage, testConnection } from "@/lib/publisher";
 import { announce, newIndexNowKey, parseServiceAccount } from "@/lib/indexing";
-import { searchJobs } from "@/lib/db";
+import { deleteBlogPost, listBlog, searchJobs } from "@/lib/db";
 import type { JobStatus } from "@/lib/types";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -192,15 +192,13 @@ export async function saveSettingsAction(formData: FormData) {
     const token = str(formData, "publish_bot_token");
     // نخلي التوكن القديم إذا الحقل انترك فارغ
     if (token && !token.startsWith("•")) patch.publish_bot_token = token;
-  } else if (section === "promo") {
-    patch.promo_enabled = bool(formData, "promo_enabled");
-    patch.promo_interval_hours = num(formData, "promo_interval_hours");
-    patch.promo_include_job = bool(formData, "promo_include_job");
-    patch.promo_include_photo = bool(formData, "promo_include_photo");
-    patch.promo_footer = str(formData, "promo_footer");
+  } else if (section === "blog") {
+    patch.blog_enabled = bool(formData, "blog_enabled");
+    patch.blog_per_day = num(formData, "blog_per_day");
+    patch.blog_publish_channel = bool(formData, "blog_publish_channel");
+    patch.blog_footer = str(formData, "blog_footer");
+    patch.blog_extra = str(formData, "blog_extra");
     patch.bot_disclosure = str(formData, "bot_disclosure");
-    patch.promo_quotes = String(formData.get("promo_quotes") ?? "")
-      .split("\n").map((q) => q.trim()).filter((q) => q.length > 8);
 
   } else if (section === "indexing") {
     patch.indexing_google = bool(formData, "indexing_google");
@@ -292,14 +290,23 @@ export async function newIndexKeyAction() {
 }
 
 
-/** ينشر المنشور الدوري فوراً (تجربة) */
-export async function promoNowAction() {
+/** يولّد منشور مدونة فوراً */
+export async function blogNowAction() {
   await requireAdmin();
   let msg: string;
   try {
-    msg = (await runPromo(true)) || "ما انرسل شي";
+    msg = (await runBlog(true)) || "ما انتج شي";
   } catch (e) {
     msg = `فشل: ${e instanceof Error ? e.message : e}`;
   }
-  redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#promo`);
+  revalidatePath("/blog");
+  redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#blog`);
+}
+
+/** يحذف منشور مدونة */
+export async function deleteBlogAction(formData: FormData) {
+  await requireAdmin();
+  deleteBlogPost(num(formData, "id"));
+  revalidatePath("/blog");
+  redirect(`/admin/settings?msg=${encodeURIComponent("انحذف المنشور")}#blog`);
 }

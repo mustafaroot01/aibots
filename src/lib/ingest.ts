@@ -3,7 +3,8 @@ import { classify, cleanTitle, rulesTitle } from "./classify";
 import { extractPhones } from "./phone";
 import { cleanBody, shorten } from "./text";
 import { publishJob, sendPost } from "./publisher";
-import { buildPromo, isPromoDue, markPromoSent } from "./promo";
+import { blogMessage, generatePost, isBlogDue, markBlogGenerated } from "./blog";
+import { blogAwaitingTelegram, markBlogTelegram } from "./db";
 import { getSettings } from "./settings";
 import { announce } from "./indexing";
 import { fetchChannel } from "./telegram";
@@ -19,7 +20,7 @@ export interface IngestResult {
   tgSent: number;
   tgFailed: number;
   tgSkipped: number;
-  promo: string;
+  blog: string;
 }
 
 /** دورة كاملة: سحب من القناة ← تخزين الجديد ← فلترة وتحليل ← نشر بالموقع ← نشر بقناتك */
@@ -40,9 +41,9 @@ export async function ingestOnce(): Promise<IngestResult> {
 
   const result = await processPending();
   const tg = await publishQueued();
-  const promo = await runPromo();
+  const blog = await runBlog();
   setMeta("last_run", new Date().toISOString());
-  return { fetched, isNew, ...result, ...tg, promo };
+  return { fetched, isNew, ...result, ...tg, blog };
 }
 
 /** يفلتر ويحلل كل المنشورات اللي بحالة pending */
@@ -104,20 +105,42 @@ export async function publishQueued(limit = 10): Promise<{ tgSent: number; tgFai
 }
 
 /** يسحب الأرشيف القديم صفحة صفحة */
-/** ينشر المنشور الدوري إذا حان وقته */
-export async function runPromo(force = false): Promise<string> {
+/** يولّد منشور مدونة إذا حان وقته، وينشره بالقناة */
+export async function runBlog(force = false): Promise<string> {
   const cfg = getSettings();
-  if (!force && !isPromoDue(cfg)) return "";
+  if (!force && !isBlogDue(cfg)) return "";
 
-  const content = buildPromo(cfg);
-  if (!content) return "ما موجود محتوى";
-
-  const r = await sendPost(cfg, content.text, content.photo);
-  if (r.ok) {
-    markPromoSent();
-    return `منشور دوري أُرسل (رقم ${r.messageId})`;
+  let post;
+  try {
+    post = await generatePost(cfg);
+    markBlogGenerated();
+  } catch (e) {
+    return `فشل توليد المدونة: ${e instanceof Error ? e.message : e}`;
   }
-  return `فشل المنشور الدوري: ${r.error}`;
+
+  if (!cfg.blog_publish_channel || !cfg.publish_enabled) {
+    return `منشور مدونة جديد: ${post.title}`;
+  }
+
+  const r = await sendPost(cfg, blogMessage(post, cfg));
+  markBlogTelegram(post.id, r.ok, r.messageId);
+  return r.ok
+    ? `منشور مدونة نُشر بالموقع والقناة: ${post.title}`
+    : `منشور مدونة نُشر بالموقع، وفشل بالقناة: ${r.error}`;
+}
+
+/** يعيد إرسال منشورات المدونة العالقة بالطابور */
+export async function publishBlogQueue(limit = 3): Promise<number> {
+  const cfg = getSettings();
+  if (!cfg.blog_publish_channel || !cfg.publish_enabled) return 0;
+  let sent = 0;
+  for (const post of blogAwaitingTelegram(limit)) {
+    const r = await sendPost(cfg, blogMessage(post, cfg));
+    markBlogTelegram(post.id, r.ok, r.messageId);
+    if (r.ok) sent++;
+    await sleep(cfg.publish_delay_seconds * 1000);
+  }
+  return sent;
 }
 
 /** يسحب الأرشيف القديم من كل قناة، صفحة صفحة */
