@@ -2,7 +2,8 @@ import { applyExtraction, insertRaw, jobsAwaitingTelegram, minSourceId, pendingP
 import { classify, cleanTitle, rulesTitle } from "./classify";
 import { extractPhones } from "./phone";
 import { cleanBody, shorten } from "./text";
-import { publishJob } from "./publisher";
+import { publishJob, sendPost } from "./publisher";
+import { buildPromo, isPromoDue, markPromoSent } from "./promo";
 import { getSettings } from "./settings";
 import { announce } from "./indexing";
 import { fetchChannel } from "./telegram";
@@ -18,6 +19,7 @@ export interface IngestResult {
   tgSent: number;
   tgFailed: number;
   tgSkipped: number;
+  promo: string;
 }
 
 /** دورة كاملة: سحب من القناة ← تخزين الجديد ← فلترة وتحليل ← نشر بالموقع ← نشر بقناتك */
@@ -38,8 +40,9 @@ export async function ingestOnce(): Promise<IngestResult> {
 
   const result = await processPending();
   const tg = await publishQueued();
+  const promo = await runPromo();
   setMeta("last_run", new Date().toISOString());
-  return { fetched, isNew, ...result, ...tg };
+  return { fetched, isNew, ...result, ...tg, promo };
 }
 
 /** يفلتر ويحلل كل المنشورات اللي بحالة pending */
@@ -101,6 +104,22 @@ export async function publishQueued(limit = 10): Promise<{ tgSent: number; tgFai
 }
 
 /** يسحب الأرشيف القديم صفحة صفحة */
+/** ينشر المنشور الدوري إذا حان وقته */
+export async function runPromo(force = false): Promise<string> {
+  const cfg = getSettings();
+  if (!force && !isPromoDue(cfg)) return "";
+
+  const content = buildPromo(cfg);
+  if (!content) return "ما موجود محتوى";
+
+  const r = await sendPost(cfg, content.text, content.photo);
+  if (r.ok) {
+    markPromoSent();
+    return `منشور دوري أُرسل (رقم ${r.messageId})`;
+  }
+  return `فشل المنشور الدوري: ${r.error}`;
+}
+
 /** يسحب الأرشيف القديم من كل قناة، صفحة صفحة */
 export async function backfill(pages = 5): Promise<{ isNew: number; perChannel: Record<string, number> }> {
   const cfg = getSettings();

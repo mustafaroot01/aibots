@@ -139,6 +139,35 @@ export function renderMessage(job: JobRow, s: Settings, limit = MESSAGE_LIMIT): 
 
 export interface SendResult { ok: boolean; messageId?: number; error?: string; skipped?: boolean }
 
+/** يرسل منشور حر (نص + صورة اختيارية) — يُستعمل للمنشور الدوري */
+export async function sendPost(
+  s: Settings, text: string, photo?: string
+): Promise<SendResult> {
+  if (!s.publish_bot_token || !s.publish_channel) {
+    return { ok: false, skipped: true, error: "إعدادات البوت أو القناة ناقصة" };
+  }
+  const chat_id = normalizeChat(s.publish_channel);
+
+  try {
+    let messageId: number;
+    if (photo && text.length <= CAPTION_LIMIT) {
+      const r = await call<{ message_id: number }>(s.publish_bot_token, "sendPhoto", {
+        chat_id, photo, caption: text, parse_mode: "HTML",
+      });
+      messageId = r.message_id;
+    } else {
+      const r = await call<{ message_id: number }>(s.publish_bot_token, "sendMessage", {
+        chat_id, text: cutWords(text, MESSAGE_LIMIT), parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+      messageId = r.message_id;
+    }
+    return { ok: true, messageId };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** ينشر وظيفة وحدة بالقناة ويحدّث حالتها بقاعدة البيانات */
 export async function publishJob(job: JobRow, s: Settings): Promise<SendResult> {
   if (!s.publish_enabled) return { ok: false, skipped: true, error: "النشر بالقناة مطفي" };

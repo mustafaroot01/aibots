@@ -54,6 +54,16 @@ export interface Settings {
   publish_include_phones: boolean;
   publish_include_link: boolean;
   publish_delay_seconds: number;
+
+  // المنشور الدوري بالقناة
+  promo_enabled: boolean;
+  promo_interval_hours: number;
+  promo_include_job: boolean;
+  promo_include_photo: boolean;
+  promo_quotes: string[];
+  promo_footer: string;
+  bot_disclosure: string;
+
   publish_max_age_hours: number; // ما ينشر منشور أقدم من هذا العمر (يحمي من الأرشفة)
 }
 
@@ -142,12 +152,22 @@ export function defaults(): Settings {
     publish_include_phones: true,
     publish_include_link: true,
     publish_delay_seconds: 4,
+
+    promo_enabled: false,
+    promo_interval_hours: 12,
+    promo_include_job: true,
+    promo_include_photo: false,
+    promo_quotes: [],
+    promo_footer: "",
+    bot_disclosure: "🤖 هذا منشور آلي — ينشره بوت وليس إنسان. الإعلانات منقولة كما نُشرت ولا نضمن صحتها.",
+
     publish_max_age_hours: 48,
   };
 }
 
 const NUM_RANGE: Record<string, [number, number]> = {
   publish_delay_seconds: [1, 120],
+  promo_interval_hours: [1, 168],
   publish_max_age_hours: [1, 8760],
   poll_seconds: [30, 86_400],
   claude_batch_size: [1, 20],
@@ -235,6 +255,15 @@ function sanitize(s: Settings): Settings {
   out.publish_include_photo = Boolean(out.publish_include_photo);
   out.publish_include_phones = Boolean(out.publish_include_phones);
   out.publish_include_link = Boolean(out.publish_include_link);
+  out.promo_enabled = Boolean(out.promo_enabled);
+  out.promo_include_job = Boolean(out.promo_include_job);
+  out.promo_include_photo = Boolean(out.promo_include_photo);
+  out.promo_footer = String(out.promo_footer || "").slice(0, 300);
+  out.bot_disclosure = String(out.bot_disclosure || "").slice(0, 300) || defaults().bot_disclosure;
+  out.promo_quotes = (Array.isArray(out.promo_quotes)
+    ? out.promo_quotes
+    : String(out.promo_quotes ?? "").split("\n"))
+    .map((q) => String(q).trim()).filter((q) => q.length > 8).slice(0, 200);
   out.brand_channel = String(out.brand_channel || "").replace(/^@/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 64);
   const tok = String(out.publish_bot_token || "").trim();
   out.publish_bot_token = isEncrypted(tok) ? tok : tok.slice(0, 200);

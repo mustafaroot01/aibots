@@ -23,7 +23,8 @@ async function runOnce() {
   const r = await ingestOnce();
   log(
     `سحبنا ${r.fetched} | جديد ${r.isNew} | تصنيف ${r.classified} (${r.classifier}) → نُشر ${r.published}، رُفض ${r.rejected}` +
-    (r.tgSent || r.tgFailed ? ` | قناتك: أُرسل ${r.tgSent}، فشل ${r.tgFailed}` : "")
+    (r.tgSent || r.tgFailed ? ` | قناتك: أُرسل ${r.tgSent}، فشل ${r.tgFailed}` : "") +
+    (r.promo ? ` | ${r.promo}` : "")
   );
 }
 

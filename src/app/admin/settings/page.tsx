@@ -1,6 +1,7 @@
 import { guardPage } from "@/lib/auth";
 import { getSettings, EFFORTS, MODELS, GEMINI_MODELS, PROVIDERS, listToText, channelsToText, settingsHealth } from "@/lib/settings";
 import { parseServiceAccount } from "@/lib/indexing";
+import { DEFAULT_QUOTES, buildPromo, hoursUntilPromo } from "@/lib/promo";
 import { searchJobs } from "@/lib/db";
 import { renderMessage } from "@/lib/publisher";
 import { providerStatus } from "@/lib/classify";
@@ -9,8 +10,8 @@ import { ConfirmButton } from "@/components/confirm";
 import { SecretField, SettingsCard, Toggle } from "@/components/form-bits";
 import { Alert, Briefcase, Building, Search, Telegram, Users } from "@/components/icons";
 import {
-  newIndexKeyAction, pingIndexAction, resetSettingsAction, saveSettingsAction,
-  sendTestAction, testBotAction,
+  newIndexKeyAction, pingIndexAction, promoNowAction, resetSettingsAction,
+  saveSettingsAction, sendTestAction, testBotAction,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ const SECTIONS = [
   { id: "source", label: "المصدر" },
   { id: "ai", label: "الفلترة" },
   { id: "publish", label: "النشر بقناتك" },
+  { id: "promo", label: "المنشور الدوري" },
   { id: "indexing", label: "محركات البحث" },
   { id: "display", label: "العرض" },
   { id: "danger", label: "إعادة ضبط" },
@@ -34,6 +36,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const s = getSettings();
   const h = settingsHealth(s);
   const ps = providerStatus();
+  const promoLeft = s.promo_enabled ? hoursUntilPromo(s) : null;
+  const promoPreview = (buildPromo(s)?.text ?? "")
+    .replace(/<\/?(b|i)>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    || "ما موجود محتوى للمعاينة";
 
   const sample = searchJobs({ perPage: 1, page: 1 }).rows[0];
   const preview = sample
@@ -353,12 +359,87 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </SettingsCard>
       </form>
 
+      {/* ————— المنشور الدوري ————— */}
+      <form action={saveSettingsAction}>
+        <input type="hidden" name="section" value="promo" />
+        <SettingsCard
+          id="promo"
+          title={<><Telegram /> ٥. المنشور الدوري</>}
+          badge={s.promo_enabled ? `كل ${s.promo_interval_hours} ساعة` : "مطفي"}
+          badgeTone={s.promo_enabled ? "" : "muted"}
+          hint={<>
+            منشور تفاعلي بقناتك على فترات — اقتباس تشجيعي لطالبي العمل + وظيفة من موقعك،
+            مع <b>إفصاح واضح إن الناشر بوت</b>.
+            {promoLeft !== null && s.promo_enabled && (
+              <> · الجاي بعد <b>{promoLeft.toFixed(1)} ساعة</b></>
+            )}
+          </>}
+          extraButtons={
+            <button className="btn" type="submit" formAction={promoNowAction} formNoValidate>
+              انشر الآن (تجربة)
+            </button>
+          }
+        >
+          <Toggle name="promo_enabled" label="تفعيل المنشور الدوري"
+            hint="يحتاج النشر بالقناة يكون مفعّل"
+            defaultChecked={s.promo_enabled} />
+
+          <div className="form-grid two" style={{ marginTop: 14 }}>
+            <div className="field">
+              <label htmlFor="promo_interval_hours">كل كم ساعة</label>
+              <input id="promo_interval_hours" name="promo_interval_hours" type="number"
+                inputMode="numeric" min={1} max={168} defaultValue={s.promo_interval_hours} />
+              <div className="desc">١٢ يعني مرتين باليوم.</div>
+            </div>
+            <div className="field" style={{ alignSelf: "end" }}>
+              <Toggle name="promo_include_job" label="أرفق وظيفة من الموقع"
+                hint="يختار وحدة حديثة، يفضّل اللي بيها رقم تواصل"
+                defaultChecked={s.promo_include_job} />
+            </div>
+            <div className="field">
+              <Toggle name="promo_include_photo" label="أرفق صورة الوظيفة"
+                hint="إذا كان الإعلان الأصلي بيه صورة"
+                defaultChecked={s.promo_include_photo} />
+            </div>
+          </div>
+
+          <div className="field" style={{ marginTop: 14 }}>
+            <label htmlFor="bot_disclosure">إفصاح البوت</label>
+            <input id="bot_disclosure" name="bot_disclosure" type="text"
+              defaultValue={s.bot_disclosure} maxLength={300} />
+            <div className="desc">
+              ينضاف بآخر كل منشور دوري. <b>لا تشيله</b> — الشفافية تبني ثقة المتابعين.
+            </div>
+          </div>
+
+          <div className="field" style={{ marginTop: 14 }}>
+            <label htmlFor="promo_quotes">الاقتباسات (وحدة بكل سطر)</label>
+            <textarea id="promo_quotes" name="promo_quotes" dir="rtl"
+              defaultValue={(s.promo_quotes.length ? s.promo_quotes : DEFAULT_QUOTES).join("\n")}
+              style={{ minHeight: 190, lineHeight: 2 }} />
+            <div className="desc">
+              يختار وحدة عشوائياً ولا يكررها لحد ما تخلص القائمة.
+              {!s.promo_quotes.length && " (هذي الاقتباسات الافتراضية — عدّلها براحتك)"}
+            </div>
+          </div>
+
+          <div className="field" style={{ marginTop: 14 }}>
+            <label htmlFor="promo_footer">سطر إضافي (اختياري)</label>
+            <input id="promo_footer" name="promo_footer" type="text"
+              defaultValue={s.promo_footer} placeholder="مثال: 📢 شارك القناة مع صديق يدور على شغل" />
+          </div>
+
+          <div className="section-label">معاينة</div>
+          <div className="preview-box">{promoPreview}</div>
+        </SettingsCard>
+      </form>
+
       {/* ————— محركات البحث ————— */}
       <form action={saveSettingsAction}>
         <input type="hidden" name="section" value="indexing" />
         <SettingsCard
           id="indexing"
-          title={<><Search /> ٥. محركات البحث والفهرسة الفورية</>}
+          title={<><Search /> ٦. محركات البحث والفهرسة الفورية</>}
           badge={s.indexing_google || s.indexing_indexnow ? "مفعّل" : "مطفي"}
           badgeTone={s.indexing_google || s.indexing_indexnow ? "" : "muted"}
           hint={<>بدل ما تنتظر كوكل يزحف لموقعك (أسابيع)، نخبره بكل وظيفة <b>لحظة نشرها</b>.</>}
@@ -434,7 +515,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       {/* ————— ٦. عرض الموقع ————— */}
       <form action={saveSettingsAction}>
         <input type="hidden" name="section" value="display" />
-        <SettingsCard id="display" title={<><Building /> ٦. عرض الموقع</>}>
+        <SettingsCard id="display" title={<><Building /> ٧. عرض الموقع</>}>
           <div className="form-grid two">
             <div className="field">
               <label htmlFor="per_page">عدد الوظائف بالصفحة</label>
@@ -457,7 +538,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
       {/* ————— ٦. إعادة ضبط ————— */}
       <div className="adm-card" id="danger">
-        <h2><Alert /> ٧. إعادة ضبط</h2>
+        <h2><Alert /> ٨. إعادة ضبط</h2>
         <p className="hint">يرجّع كل الإعدادات لقيمها الافتراضية (بضمنها توكن البوت والقالب). المنشورات ما تنمس.</p>
         <form action={resetSettingsAction}>
           <ConfirmButton

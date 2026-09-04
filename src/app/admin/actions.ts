@@ -7,7 +7,7 @@ import {
 } from "@/lib/db";
 import { attemptLogin, requireAdmin, safeBack, setLoginError, signOut, signOutEverywhere } from "@/lib/auth";
 import { getSettings, resetSettings, saveSettings, textToList, type Settings } from "@/lib/settings";
-import { ingestOnce, markForReclassify, processPending, publishQueued } from "@/lib/ingest";
+import { ingestOnce, markForReclassify, processPending, publishQueued, runPromo } from "@/lib/ingest";
 import { publishJob, sendTestMessage, testConnection } from "@/lib/publisher";
 import { announce, newIndexNowKey, parseServiceAccount } from "@/lib/indexing";
 import { searchJobs } from "@/lib/db";
@@ -192,6 +192,16 @@ export async function saveSettingsAction(formData: FormData) {
     const token = str(formData, "publish_bot_token");
     // نخلي التوكن القديم إذا الحقل انترك فارغ
     if (token && !token.startsWith("•")) patch.publish_bot_token = token;
+  } else if (section === "promo") {
+    patch.promo_enabled = bool(formData, "promo_enabled");
+    patch.promo_interval_hours = num(formData, "promo_interval_hours");
+    patch.promo_include_job = bool(formData, "promo_include_job");
+    patch.promo_include_photo = bool(formData, "promo_include_photo");
+    patch.promo_footer = str(formData, "promo_footer");
+    patch.bot_disclosure = str(formData, "bot_disclosure");
+    patch.promo_quotes = String(formData.get("promo_quotes") ?? "")
+      .split("\n").map((q) => q.trim()).filter((q) => q.length > 8);
+
   } else if (section === "indexing") {
     patch.indexing_google = bool(formData, "indexing_google");
     patch.indexing_indexnow = bool(formData, "indexing_indexnow");
@@ -279,4 +289,17 @@ export async function newIndexKeyAction() {
   const key = newIndexNowKey();
   saveSettings({ indexnow_key: key, indexing_indexnow: true });
   redirect(`/admin/settings?msg=${encodeURIComponent(`المفتاح الجديد: ${key} — تأكد إنه ينفتح على موقعك`)}#indexing`);
+}
+
+
+/** ينشر المنشور الدوري فوراً (تجربة) */
+export async function promoNowAction() {
+  await requireAdmin();
+  let msg: string;
+  try {
+    msg = (await runPromo(true)) || "ما انرسل شي";
+  } catch (e) {
+    msg = `فشل: ${e instanceof Error ? e.message : e}`;
+  }
+  redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#promo`);
 }
