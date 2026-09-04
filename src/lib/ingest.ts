@@ -1,9 +1,10 @@
-import { applyExtraction, insertRaw, jobsAwaitingTelegram, minPostId, pendingPosts, setMeta, setTelegramStatus, db } from "./db";
+import { applyExtraction, insertRaw, jobsAwaitingTelegram, minSourceId, pendingPosts, setMeta, setTelegramStatus, db } from "./db";
 import { classify, cleanTitle, rulesTitle } from "./classify";
 import { extractPhones } from "./phone";
 import { cleanBody, shorten } from "./text";
 import { publishJob } from "./publisher";
 import { getSettings } from "./settings";
+import { announce } from "./indexing";
 import { fetchChannel } from "./telegram";
 import type { RawPost } from "./types";
 
@@ -20,16 +21,25 @@ export interface IngestResult {
 }
 
 /** دورة كاملة: سحب من القناة ← تخزين الجديد ← فلترة وتحليل ← نشر بالموقع ← نشر بقناتك */
-export async function ingestOnce(opts: { before?: number } = {}): Promise<IngestResult> {
+export async function ingestOnce(): Promise<IngestResult> {
   const cfg = getSettings();
-  const posts = await fetchChannel(cfg.tg_channel, opts);
-  let isNew = 0;
-  for (const p of posts) if (insertRaw(p)) isNew++;
+  let fetched = 0, isNew = 0;
+
+  for (const channel of cfg.tg_channels) {
+    try {
+      const posts = await fetchChannel(channel);
+      fetched += posts.length;
+      for (const p of posts) if (insertRaw(p)) isNew++;
+    } catch (e) {
+      console.error(`[ingest] فشل سحب @${channel}:`, e instanceof Error ? e.message : e);
+    }
+    if (cfg.tg_channels.length > 1) await sleep(1200);   // نتأنى بين القنوات
+  }
 
   const result = await processPending();
   const tg = await publishQueued();
   setMeta("last_run", new Date().toISOString());
-  return { fetched: posts.length, isNew, ...result, ...tg };
+  return { fetched, isNew, ...result, ...tg };
 }
 
 /** يفلتر ويحلل كل المنشورات اللي بحالة pending */
@@ -40,6 +50,7 @@ export async function processPending(limit = 40) {
   const cfg = getSettings();
   const { results, classifier, quotaExhausted } = await classify(pending);
   let published = 0, rejected = 0;
+  const publishedUrls: string[] = [];
   for (const p of pending) {
     const e = results.get(p.id);
     if (!e) continue;
@@ -47,10 +58,21 @@ export async function processPending(limit = 40) {
       autoPublish: cfg.auto_publish,
       threshold: cfg.confidence_threshold,
     });
-    status === "rejected" ? rejected++ : published++;
+    if (status === "rejected") rejected++;
+    else {
+      published++;
+      publishedUrls.push(`${cfg.site_url}/job/${p.id}`);
+    }
   }
   if (quotaExhausted) setMeta("quota_exhausted_at", new Date().toISOString());
   else setMeta("quota_exhausted_at", "");
+
+  // نبلّغ محركات البحث بالوظائف الجديدة — بالخلفية، ما نعطّل الدورة
+  if (publishedUrls.length && (cfg.indexing_google || cfg.indexing_indexnow)) {
+    announce(publishedUrls, cfg)
+      .then((r) => setMeta("last_index_ping", JSON.stringify({ at: new Date().toISOString(), ...r })))
+      .catch(() => {});
+  }
 
   return { classified: results.size, published, rejected, classifier, quotaExhausted };
 }
@@ -79,21 +101,35 @@ export async function publishQueued(limit = 10): Promise<{ tgSent: number; tgFai
 }
 
 /** يسحب الأرشيف القديم صفحة صفحة */
-export async function backfill(pages = 5): Promise<{ isNew: number; oldest: number }> {
-  const channel = getSettings().tg_channel;
-  let before = minPostId() || undefined;
+/** يسحب الأرشيف القديم من كل قناة، صفحة صفحة */
+export async function backfill(pages = 5): Promise<{ isNew: number; perChannel: Record<string, number> }> {
+  const cfg = getSettings();
   let isNew = 0;
+  const perChannel: Record<string, number> = {};
 
-  for (let i = 0; i < pages; i++) {
-    const posts: RawPost[] = await fetchChannel(channel, before ? { before } : {});
-    if (!posts.length) break;
-    for (const p of posts) if (insertRaw(p)) isNew++;
-    const oldest = Math.min(...posts.map((p) => p.id));
-    if (before && oldest >= before) break; // ما تقدمنا، نوقف
-    before = oldest;
-    await sleep(1200);
+  for (const channel of cfg.tg_channels) {
+    let before = minSourceId(channel) || undefined;
+    let got = 0;
+
+    for (let i = 0; i < pages; i++) {
+      let posts: RawPost[];
+      try {
+        posts = await fetchChannel(channel, before ? { before } : {});
+      } catch (e) {
+        console.error(`[backfill] @${channel}:`, e instanceof Error ? e.message : e);
+        break;
+      }
+      if (!posts.length) break;
+      for (const p of posts) if (insertRaw(p)) { isNew++; got++; }
+
+      const oldest = Math.min(...posts.map((p) => p.id));
+      if (before && oldest >= before) break;   // ما تقدمنا، نوقف
+      before = oldest;
+      await sleep(1200);
+    }
+    perChannel[channel] = got;
   }
-  return { isNew, oldest: before ?? 0 };
+  return { isNew, perChannel };
 }
 
 /** يعيد تصنيف منشورات معينة (بعد ما تعدّل الإعدادات مثلاً) */

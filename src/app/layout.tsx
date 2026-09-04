@@ -30,6 +30,10 @@ export async function generateMetadata(): Promise<Metadata> {
       description: desc,
     },
     icons: { icon: "/icons/icon-192.png", apple: "/icons/apple-touch-icon.png" },
+    verification: {
+      ...(s.google_verification ? { google: s.google_verification } : {}),
+      ...(s.bing_verification ? { other: { "msvalidate.01": s.bing_verification } } : {}),
+    },
   };
 }
 

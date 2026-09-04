@@ -1,5 +1,5 @@
 import { guardPage } from "@/lib/auth";
-import { fullStats, getMeta, publishLog, recent, visitStats } from "@/lib/db";
+import { fullStats, getMeta, publishLog, recent, sourceStats, visitStats } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { providerStatus } from "@/lib/classify";
 import { timeAgo } from "@/lib/format";
@@ -7,7 +7,7 @@ import { Toast } from "@/components/toast";
 import { ConfirmButton } from "@/components/confirm";
 import { activeSessions, tokenStrength } from "@/lib/auth";
 import { maskSecret } from "@/lib/crypto";
-import { Alert, Briefcase, Clock, Telegram, Users } from "@/components/icons";
+import { Alert, Briefcase, Clock, Search, Telegram, Users } from "@/components/icons";
 import {
   logoutEverywhereAction, processPendingAction, publishQueueAction, reclassifyAction, runIngestAction,
 } from "./actions";
@@ -25,6 +25,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const lastRun = getMeta("last_run");
   const quotaOut = getMeta("quota_exhausted_at");
   const v = visitStats();
+  const sources = sourceStats();
   const ps = providerStatus();
   const strength = tokenStrength();
   const sessions = activeSessions();
@@ -131,6 +132,24 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               إعادة فلترة الكل ({s.total})
             </ConfirmButton>
           </form>
+        </div>
+      </div>
+
+      <div className="adm-card">
+        <h2><Search /> المصادر ({sources.length})</h2>
+        <p className="hint">القنوات اللي نسحب منها — تنضاف وتنشال من الإعدادات.</p>
+        <div style={{ display: "grid", gap: 7 }}>
+          {sources.map((src) => (
+            <div key={src.channel} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+              <b dir="ltr" style={{ minWidth: 130 }}>@{src.channel}</b>
+              <span style={{ color: "var(--muted)" }}>
+                {src.published} منشورة من {src.total}
+              </span>
+              <span style={{ marginInlineStart: "auto", color: "var(--muted)", fontSize: 11.5 }}>
+                آخر منشور {timeAgo(src.last_ts)}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 

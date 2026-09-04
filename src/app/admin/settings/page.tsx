@@ -1,5 +1,6 @@
 import { guardPage } from "@/lib/auth";
-import { getSettings, EFFORTS, MODELS, GEMINI_MODELS, PROVIDERS, listToText, settingsHealth } from "@/lib/settings";
+import { getSettings, EFFORTS, MODELS, GEMINI_MODELS, PROVIDERS, listToText, channelsToText, settingsHealth } from "@/lib/settings";
+import { parseServiceAccount } from "@/lib/indexing";
 import { searchJobs } from "@/lib/db";
 import { renderMessage } from "@/lib/publisher";
 import { providerStatus } from "@/lib/classify";
@@ -8,7 +9,8 @@ import { ConfirmButton } from "@/components/confirm";
 import { SecretField, SettingsCard, Toggle } from "@/components/form-bits";
 import { Alert, Briefcase, Building, Search, Telegram, Users } from "@/components/icons";
 import {
-  resetSettingsAction, saveSettingsAction, sendTestAction, testBotAction,
+  newIndexKeyAction, pingIndexAction, resetSettingsAction, saveSettingsAction,
+  sendTestAction, testBotAction,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +23,7 @@ const SECTIONS = [
   { id: "source", label: "المصدر" },
   { id: "ai", label: "الفلترة" },
   { id: "publish", label: "النشر بقناتك" },
+  { id: "indexing", label: "محركات البحث" },
   { id: "display", label: "العرض" },
   { id: "danger", label: "إعادة ضبط" },
 ];
@@ -110,14 +113,23 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           id="source"
           title={<><Search /> ٢. مصدر المحتوى</>}
           badge="داخلي" badgeTone="muted"
-          hint="القناة العامة اللي ننسحب منها المنشورات — هذي داخلية وما تظهر لزوار الموقع."
+          hint="القنوات العامة اللي ننسحب منها المنشورات — داخلية وما تظهر لزوار الموقع أبداً."
         >
-          <div className="form-grid two">
-            <div className="field">
-              <label htmlFor="tg_channel">يوزر القناة المصدر</label>
-              <input id="tg_channel" name="tg_channel" type="text" defaultValue={s.tg_channel} dir="ltr" required />
-              <div className="desc">بدون @ — لازم تكون قناة عامة.</div>
+          <div className="field">
+            <label htmlFor="tg_channels">قنوات المصدر (وحدة بكل سطر)</label>
+            <textarea id="tg_channels" name="tg_channels" className="code" dir="ltr"
+              defaultValue={channelsToText(s.tg_channels)} style={{ minHeight: 130 }} />
+            <div className="desc">
+              لازم تكون قنوات <b>عامة</b> (تنفتح بالمتصفح على t.me/s/الاسم). بدون @ أو معه، والفراغات تنشال لحالها.
+              الحد ٢٥ قناة. النظام يمنع تكرار نفس الإعلان بين القنوات.
             </div>
+            <div className="tpl-help" style={{ marginTop: 8 }}>
+              {["Diyala_jobs", "jobsbaghdad", "basrajobs", "karbalajobs", "jobs_baghdad", "baghdad_jobs"]
+                .map((c) => <code key={c}>@{c}</code>)}
+            </div>
+          </div>
+
+          <div className="form-grid two" style={{ marginTop: 14 }}>
             <div className="field">
               <label htmlFor="poll_seconds">كل كم ثانية نفحص القناة</label>
               <input id="poll_seconds" name="poll_seconds" type="number" inputMode="numeric"
@@ -341,10 +353,88 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </SettingsCard>
       </form>
 
-      {/* ————— ٥. عرض الموقع ————— */}
+      {/* ————— محركات البحث ————— */}
+      <form action={saveSettingsAction}>
+        <input type="hidden" name="section" value="indexing" />
+        <SettingsCard
+          id="indexing"
+          title={<><Search /> ٥. محركات البحث والفهرسة الفورية</>}
+          badge={s.indexing_google || s.indexing_indexnow ? "مفعّل" : "مطفي"}
+          badgeTone={s.indexing_google || s.indexing_indexnow ? "" : "muted"}
+          hint={<>بدل ما تنتظر كوكل يزحف لموقعك (أسابيع)، نخبره بكل وظيفة <b>لحظة نشرها</b>.</>}
+          extraButtons={
+            <>
+              <button className="btn" type="submit" formAction={pingIndexAction} formNoValidate>
+                أبلغ عن كل الوظائف الآن
+              </button>
+              <button className="btn" type="submit" formAction={newIndexKeyAction} formNoValidate>
+                مفتاح IndexNow جديد
+              </button>
+            </>
+          }
+        >
+          <div className="section-label">IndexNow — Bing و Yandex</div>
+          <p className="hint" style={{ marginTop: 0 }}>
+            ما يحتاج حساب ولا موافقة. <b>مهم لـ ChatGPT</b> لأن بحثه يعتمد على فهرس Bing.
+          </p>
+
+          <Toggle name="indexing_indexnow" label="تفعيل IndexNow"
+            hint="إبلاغ فوري لـ Bing و Yandex بكل وظيفة جديدة"
+            defaultChecked={s.indexing_indexnow} />
+
+          <div className="field" style={{ marginTop: 14 }}>
+            <label htmlFor="indexnow_key">مفتاح IndexNow</label>
+            <input id="indexnow_key" name="indexnow_key" type="text" dir="ltr"
+              defaultValue={s.indexnow_key} placeholder="اضغط «مفتاح جديد» ليتولد" />
+            <div className="desc">
+              {s.indexnow_key ? (
+                <>لازم ينفتح على: <code dir="ltr">{s.site_url}/{s.indexnow_key}.txt</code> — الموقع يخدمه تلقائياً.</>
+              ) : "ما موجود مفتاح — اضغط «مفتاح IndexNow جديد» بالأسفل."}
+            </div>
+          </div>
+
+          <div className="section-label">Google Indexing API</div>
+          <p className="hint" style={{ marginTop: 0 }}>
+            واجهة رسمية <b>مخصصة لصفحات الوظائف</b>. تحتاج حساب خدمة من Google Cloud
+            يكون مضاف كـ«مالك» بـ Search Console. الحصة ٢٠٠ رابط باليوم.
+          </p>
+
+          <Toggle name="indexing_google" label="تفعيل إبلاغ جوجل"
+            hint="كل وظيفة جديدة تنرسل لجوجل مباشرة"
+            defaultChecked={s.indexing_google} />
+
+          <div className="field" style={{ marginTop: 14 }}>
+            <label htmlFor="google_service_account">ملف حساب الخدمة (JSON)</label>
+            <textarea id="google_service_account" name="google_service_account" className="code" dir="ltr"
+              placeholder={s.google_service_account ? "محفوظ مشفّر — اتركه فارغ إذا ما تريد تغييره" : '{ "type": "service_account", "client_email": "...", "private_key": "..." }'}
+              style={{ minHeight: 90 }} />
+            <div className="desc">
+              {s.google_service_account
+                ? `✅ محفوظ — الحساب: ${(parseServiceAccount(s.google_service_account)?.client_email ?? "غير صالح")}`
+                : "الصق محتوى ملف JSON كامل. ينخزن مشفّر وما ينعرض بعد الحفظ."}
+            </div>
+          </div>
+
+          <div className="section-label">تأكيد ملكية الموقع</div>
+          <div className="form-grid two">
+            <div className="field">
+              <label htmlFor="google_verification">رمز Google Search Console</label>
+              <input id="google_verification" name="google_verification" type="text" dir="ltr"
+                defaultValue={s.google_verification} placeholder="محتوى وسم google-site-verification" />
+            </div>
+            <div className="field">
+              <label htmlFor="bing_verification">رمز Bing Webmaster</label>
+              <input id="bing_verification" name="bing_verification" type="text" dir="ltr"
+                defaultValue={s.bing_verification} placeholder="محتوى وسم msvalidate.01" />
+            </div>
+          </div>
+        </SettingsCard>
+      </form>
+
+      {/* ————— ٦. عرض الموقع ————— */}
       <form action={saveSettingsAction}>
         <input type="hidden" name="section" value="display" />
-        <SettingsCard id="display" title={<><Building /> ٥. عرض الموقع</>}>
+        <SettingsCard id="display" title={<><Building /> ٦. عرض الموقع</>}>
           <div className="form-grid two">
             <div className="field">
               <label htmlFor="per_page">عدد الوظائف بالصفحة</label>
@@ -367,7 +457,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
       {/* ————— ٦. إعادة ضبط ————— */}
       <div className="adm-card" id="danger">
-        <h2><Alert /> ٦. إعادة ضبط</h2>
+        <h2><Alert /> ٧. إعادة ضبط</h2>
         <p className="hint">يرجّع كل الإعدادات لقيمها الافتراضية (بضمنها توكن البوت والقالب). المنشورات ما تنمس.</p>
         <form action={resetSettingsAction}>
           <ConfirmButton

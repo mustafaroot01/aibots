@@ -40,7 +40,7 @@ async function main() {
 
     case "cron": {
       const s0 = getSettings();
-      log(`العامل اشتغل — فحص كل ${s0.poll_seconds} ثانية على القناة المصدر (${s0.tg_channel})`);
+      log(`العامل اشتغل — فحص كل ${s0.poll_seconds} ثانية على ${s0.tg_channels.length} مصدر: ${s0.tg_channels.map((c) => "@" + c).join("، ")}`);
       for (;;) {
         try {
           await runOnce();
@@ -55,7 +55,8 @@ async function main() {
     case "backfill": {
       const pages = Number(process.argv[3] || 5);
       const r = await backfill(pages);
-      log(`الأرشفة: ${r.isNew} منشور جديد، وصلنا للمنشور رقم ${r.oldest}`);
+      log(`الأرشفة: ${r.isNew} منشور جديد`);
+      for (const [ch, n] of Object.entries(r.perChannel)) log(`   @${ch}: ${n}`);
       for (;;) {
         const p = await processPending(40);
         if (!p.classified) break;

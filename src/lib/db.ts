@@ -5,6 +5,7 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type { Extraction, JobRow, JobStatus, RawPost } from "./types";
 
@@ -128,6 +129,8 @@ function migrate(d: DatabaseSync) {
     if (!cols.has(name)) d.exec(`ALTER TABLE posts ADD COLUMN ${name} ${decl}`);
   };
   add("posted_ts", "INTEGER NOT NULL DEFAULT 0");
+  add("source_id", "INTEGER");
+  add("text_hash", "TEXT");
   add("tg_status", "TEXT NOT NULL DEFAULT 'idle'");      // idle | queued | sent | failed | skipped
   add("tg_message_id", "INTEGER");
   add("tg_sent_at", "TEXT");
@@ -135,6 +138,19 @@ function migrate(d: DatabaseSync) {
 
   // الفهارس اللي تعتمد على أعمدة مضافة لاحقاً — بعد ما نتأكد إنها موجودة
   d.exec(`CREATE INDEX IF NOT EXISTS idx_tg_queue ON posts(tg_status, posted_ts) WHERE status = 'published'`);
+
+  // الصفوف القديمة: رقم المنشور بالمصدر كان هو نفسه المعرّف
+  d.exec(`UPDATE posts SET source_id = id WHERE source_id IS NULL`);
+  // منع التكرار لكل قناة على حدة (نفس الرقم ممكن يتكرر بقنوات مختلفة)
+  d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_src ON posts(channel, source_id)`);
+  // بصمة النص — تمسك نفس الإعلان لو انعاد نشره بقناة ثانية
+  d.exec(`CREATE INDEX IF NOT EXISTS idx_hash ON posts(text_hash)`);
+
+  const noHash = d.prepare(`SELECT id, raw_text FROM posts WHERE text_hash IS NULL`).all() as any[];
+  if (noHash.length) {
+    const up = d.prepare(`UPDATE posts SET text_hash = ? WHERE id = ?`);
+    for (const r of noHash) up.run(textHash(r.raw_text), r.id);
+  }
 
   // تعبئة الوقت الرقمي للصفوف القديمة
   const stale = d.prepare(`SELECT id, posted_at FROM posts WHERE posted_ts = 0 AND posted_at IS NOT NULL`).all() as any[];
@@ -148,6 +164,15 @@ function migrate(d: DatabaseSync) {
 }
 
 /** يحوّل تاريخ تلجرام (ISO مع الإزاحة) الى ثواني epoch — أساس كل الترتيب والمقارنات */
+/**
+ * بصمة نص الإعلان — نستخدم أول ٤٠٠ حرف بعد التطبيع.
+ * نفس الإعلان اللي ينعاد نشره بقناة ثانية يطلع بنفس البصمة.
+ */
+export function textHash(raw: string): string {
+  const norm = normalizeAr(raw || "").slice(0, 400);
+  return norm.length < 30 ? "" : createHash("sha1").update(norm).digest("hex").slice(0, 20);
+}
+
 export function toTs(iso: string | null): number {
   if (!iso) return 0;
   const t = Math.floor(new Date(iso).getTime() / 1000);
@@ -251,17 +276,27 @@ export function getMeta(key: string): string | null {
 
 /** يخزّن منشور جديد بحالة pending. يرجع false إذا موجود مسبقاً. */
 export function insertRaw(p: RawPost): boolean {
+  const blob = buildBlob([p.text]);
+  const hash = textHash(p.text);
+
+  // نفس الإعلان منشور بقناة ثانية خلال آخر ٣٠ يوم؟ نتجاهله
+  if (hash) {
+    const dup = db().prepare(
+      `SELECT id FROM posts WHERE text_hash = ? AND posted_ts >= ? LIMIT 1`
+    ).get(hash, toTs(p.postedAt) - 30 * 86400);
+    if (dup) return false;
+  }
   const info = db().prepare(`
-    INSERT OR IGNORE INTO posts (id, channel, url, raw_text, photos, links, posted_at, posted_ts, fetched_at, status, search_blob)
-    VALUES (@id, @channel, @url, @text, @photos, @links, @postedAt, @postedTs, @fetchedAt, 'pending', @blob)
+    INSERT OR IGNORE INTO posts (channel, source_id, url, raw_text, photos, links, posted_at, posted_ts, fetched_at, status, search_blob, text_hash)
+    VALUES (@channel, @sourceId, @url, @text, @photos, @links, @postedAt, @postedTs, @fetchedAt, 'pending', @blob, @hash)
   `).run({
-    id: p.id, channel: p.channel, url: p.url, text: p.text,
+    channel: p.channel, sourceId: p.id, url: p.url, text: p.text,
     photos: JSON.stringify(p.photos), links: JSON.stringify(p.links),
     postedAt: p.postedAt, postedTs: toTs(p.postedAt), fetchedAt: new Date().toISOString(),
-    blob: buildBlob([p.text]),
+    blob, hash,
   });
   const added = Number(info.changes) > 0;
-  if (added) indexPost(p.id, buildBlob([p.text]), toTs(p.postedAt));
+  if (added) indexPost(Number(info.lastInsertRowid), blob, toTs(p.postedAt));
   return added;
 }
 
@@ -430,14 +465,26 @@ export function recent(limit = 60, status?: JobStatus): JobRow[] {
   return rows.map(hydrate);
 }
 
-export function maxPostId(): number {
-  const r = db().prepare(`SELECT MAX(id) m FROM posts`).get() as { m: number | null };
+/** أقدم رقم منشور سحبناه من قناة معينة — نقطة استكمال الأرشفة */
+export function minSourceId(channel: string): number {
+  const r = db().prepare(`SELECT MIN(source_id) m FROM posts WHERE channel = ?`).get(channel) as { m: number | null };
   return r?.m ?? 0;
 }
 
-export function minPostId(): number {
-  const r = db().prepare(`SELECT MIN(id) m FROM posts`).get() as { m: number | null };
+export function maxSourceId(channel: string): number {
+  const r = db().prepare(`SELECT MAX(source_id) m FROM posts WHERE channel = ?`).get(channel) as { m: number | null };
   return r?.m ?? 0;
+}
+
+/** إحصاء لكل مصدر — يظهر بلوحة التحكم */
+export function sourceStats() {
+  return db().prepare(`
+    SELECT channel,
+           COUNT(*) total,
+           SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) published,
+           MAX(posted_ts) last_ts
+    FROM posts GROUP BY channel ORDER BY total DESC
+  `).all() as unknown as { channel: string; total: number; published: number; last_ts: number }[];
 }
 
 

@@ -9,7 +9,8 @@ import { decryptSecret, encryptSecret, isEncrypted } from "./crypto";
 export interface Settings {
   site_name: string;
   site_url: string;
-  tg_channel: string;
+  tg_channel: string;      // القناة الأساسية (توافق مع الإعداد القديم)
+  tg_channels: string[];   // كل قنوات المصدر
   poll_seconds: number;
 
   ai_provider: "claude" | "gemini" | "rules";
@@ -30,6 +31,14 @@ export interface Settings {
 
   extra_job_words: string[];
   extra_reject_words: string[];
+
+  // الفهرسة الفورية بمحركات البحث
+  indexing_google: boolean;
+  indexing_indexnow: boolean;
+  google_service_account: string;   // ملف JSON لحساب الخدمة (مشفّر بالتخزين)
+  indexnow_key: string;
+  google_verification: string;      // وسم تحقق Search Console
+  bing_verification: string;
 
   // الهوية والمصدر
   brand_channel: string;        // قناتك الخاصة (تظهر بالموقع)
@@ -91,6 +100,8 @@ export function defaults(): Settings {
     site_name: process.env.SITE_NAME || "وظائف ديالى",
     site_url: process.env.SITE_URL || "http://localhost:3000",
     tg_channel: process.env.TG_CHANNEL || "Diyala_jobs",
+    tg_channels: (process.env.TG_CHANNELS || process.env.TG_CHANNEL || "Diyala_jobs")
+      .split(/[,\s،]+/).map((c) => c.trim().replace(/^@/, "")).filter(Boolean),
     poll_seconds: Number(process.env.POLL_SECONDS || 180),
 
     ai_provider: (process.env.AI_PROVIDER as Settings["ai_provider"]) || "claude",
@@ -111,6 +122,13 @@ export function defaults(): Settings {
 
     extra_job_words: [],
     extra_reject_words: [],
+
+    indexing_google: false,
+    indexing_indexnow: true,
+    google_service_account: "",
+    indexnow_key: "",
+    google_verification: "",
+    bing_verification: "",
 
     brand_channel: process.env.BRAND_CHANNEL || "",
     show_source_link: false,
@@ -153,6 +171,7 @@ export function getSettings(): Settings {
   const value = sanitize({ ...defaults(), ...stored });
   // التوكن ينخزن مشفّر — نفكه للاستعمال الداخلي فقط
   value.publish_bot_token = decryptSecret(value.publish_bot_token);
+  value.google_service_account = decryptSecret(value.google_service_account);
   cache = { at: Date.now(), value };
   return value;
 }
@@ -162,6 +181,7 @@ export function saveSettings(patch: Partial<Settings>): Settings {
   const onDisk = {
     ...next,
     publish_bot_token: next.publish_bot_token ? encryptSecret(next.publish_bot_token) : "",
+    google_service_account: next.google_service_account ? encryptSecret(next.google_service_account) : "",
   };
   setMeta("settings", JSON.stringify(onDisk));
   cache = null;
@@ -181,8 +201,16 @@ function sanitize(s: Settings): Settings {
     const n = Number(out[k]);
     (out as any)[k] = Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : (defaults() as any)[k];
   }
-  out.tg_channel = String(out.tg_channel || "").replace(/^@/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 64)
-    || defaults().tg_channel;
+  const cleanCh = (v: unknown) =>
+    String(v ?? "").replace(/^@/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 64);
+
+  out.tg_channel = cleanCh(out.tg_channel) || defaults().tg_channel;
+
+  const list = Array.isArray(out.tg_channels)
+    ? out.tg_channels
+    : String(out.tg_channels ?? "").split(/[,\s،\n]+/);
+  out.tg_channels = [...new Set([out.tg_channel, ...list.map(cleanCh)])]
+    .filter(Boolean).slice(0, 25);
   out.site_name = String(out.site_name || "").trim().slice(0, 60) || defaults().site_name;
   out.site_url = String(out.site_url || "").trim().replace(/\/$/, "") || defaults().site_url;
   out.claude_effort = (EFFORTS as readonly string[]).includes(out.claude_effort)
@@ -197,6 +225,12 @@ function sanitize(s: Settings): Settings {
   out.hide_phones = Boolean(out.hide_phones);
   out.show_visitor_count = Boolean(out.show_visitor_count);
   out.show_source_link = Boolean(out.show_source_link);
+  out.indexing_google = Boolean(out.indexing_google);
+  out.indexing_indexnow = Boolean(out.indexing_indexnow);
+  out.indexnow_key = String(out.indexnow_key || "").replace(/[^a-zA-Z0-9-]/g, "").slice(0, 128);
+  out.google_verification = String(out.google_verification || "").trim().slice(0, 200);
+  out.bing_verification = String(out.bing_verification || "").trim().slice(0, 200);
+  out.google_service_account = String(out.google_service_account || "").slice(0, 8000);
   out.publish_enabled = Boolean(out.publish_enabled);
   out.publish_include_photo = Boolean(out.publish_include_photo);
   out.publish_include_phones = Boolean(out.publish_include_phones);
@@ -219,6 +253,7 @@ function cleanList(v: unknown): string[] {
 }
 
 export const listToText = (a: string[]) => a.join("، ");
+export const channelsToText = (a: string[]) => a.map((c) => "@" + c).join("\n");
 
 /** ملخص سريع لحالة الإعدادات — يُعرض بأعلى صفحة الإعدادات */
 export function settingsHealth(s: Settings) {

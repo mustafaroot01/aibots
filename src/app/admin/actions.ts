@@ -9,6 +9,8 @@ import { attemptLogin, requireAdmin, safeBack, setLoginError, signOut, signOutEv
 import { getSettings, resetSettings, saveSettings, textToList, type Settings } from "@/lib/settings";
 import { ingestOnce, markForReclassify, processPending, publishQueued } from "@/lib/ingest";
 import { publishJob, sendTestMessage, testConnection } from "@/lib/publisher";
+import { announce, newIndexNowKey, parseServiceAccount } from "@/lib/indexing";
+import { searchJobs } from "@/lib/db";
 import type { JobStatus } from "@/lib/types";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -156,7 +158,12 @@ export async function saveSettingsAction(formData: FormData) {
     patch.brand_channel = str(formData, "brand_channel");
     patch.show_source_link = bool(formData, "show_source_link");
   } else if (section === "source") {
-    patch.tg_channel = str(formData, "tg_channel");
+    const chans = String(formData.get("tg_channels") ?? "")
+      .split(/[\n,،\s]+/).map((c) => c.trim().replace(/^@/, "")).filter(Boolean);
+    if (chans.length) {
+      patch.tg_channels = chans;
+      patch.tg_channel = chans[0];
+    }
     patch.poll_seconds = num(formData, "poll_seconds");
     patch.backfill_pages = num(formData, "backfill_pages");
   } else if (section === "ai") {
@@ -185,6 +192,15 @@ export async function saveSettingsAction(formData: FormData) {
     const token = str(formData, "publish_bot_token");
     // نخلي التوكن القديم إذا الحقل انترك فارغ
     if (token && !token.startsWith("•")) patch.publish_bot_token = token;
+  } else if (section === "indexing") {
+    patch.indexing_google = bool(formData, "indexing_google");
+    patch.indexing_indexnow = bool(formData, "indexing_indexnow");
+    patch.google_verification = str(formData, "google_verification");
+    patch.bing_verification = str(formData, "bing_verification");
+    patch.indexnow_key = str(formData, "indexnow_key") || cur.indexnow_key || newIndexNowKey();
+    const sa = String(formData.get("google_service_account") ?? "").trim();
+    if (sa && !sa.startsWith("•")) patch.google_service_account = sa;
+
   } else if (section === "display") {
     patch.per_page = num(formData, "per_page");
     patch.hide_phones = bool(formData, "hide_phones");
@@ -237,4 +253,30 @@ export async function sendTestAction(formData: FormData) {
     msg = `❌ ${e instanceof Error ? e.message : e}`;
   }
   redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#publish`);
+}
+
+
+/** يبلّغ محركات البحث بكل الوظائف المنشورة (يُستعمل مرة بعد الضبط) */
+export async function pingIndexAction() {
+  await requireAdmin();
+  const cfg = getSettings();
+  const { rows } = searchJobs({ perPage: 100, page: 1 });
+  const urls = rows.map((j) => `${cfg.site_url}/job/${j.id}`);
+
+  let msg: string;
+  try {
+    const r = await announce(urls, cfg);
+    msg = `أبلغنا ${urls.length} رابط · Google: ${r.google} · IndexNow: ${r.indexnow}`;
+  } catch (e) {
+    msg = `فشل الإبلاغ: ${e instanceof Error ? e.message : e}`;
+  }
+  redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#indexing`);
+}
+
+/** يولّد مفتاح IndexNow جديد */
+export async function newIndexKeyAction() {
+  await requireAdmin();
+  const key = newIndexNowKey();
+  saveSettings({ indexnow_key: key, indexing_indexnow: true });
+  redirect(`/admin/settings?msg=${encodeURIComponent(`المفتاح الجديد: ${key} — تأكد إنه ينفتح على موقعك`)}#indexing`);
 }
