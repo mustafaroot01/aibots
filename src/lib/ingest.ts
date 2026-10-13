@@ -4,7 +4,8 @@ import { extractPhones } from "./phone";
 import { cleanBody, shorten } from "./text";
 import { publishJob, sendPost } from "./publisher";
 import { blogMessage, generatePost, isBlogDue, markBlogGenerated } from "./blog";
-import { blogAwaitingTelegram, markBlogTelegram } from "./db";
+import { fbBlogMessage, fbJobMessage, postToPage } from "./facebook";
+import { blogAwaitingTelegram, jobsAwaitingFacebook, markBlogFacebook, markBlogTelegram, markFacebook, setFacebookStatus } from "./db";
 import { getSettings } from "./settings";
 import { announce } from "./indexing";
 import { fetchChannel } from "./telegram";
@@ -20,6 +21,8 @@ export interface IngestResult {
   tgSent: number;
   tgFailed: number;
   tgSkipped: number;
+  fbSent: number;
+  fbFailed: number;
   blog: string;
 }
 
@@ -41,9 +44,10 @@ export async function ingestOnce(): Promise<IngestResult> {
 
   const result = await processPending();
   const tg = await publishQueued();
+  const fb = await publishFacebookQueue();
   const blog = await runBlog();
   setMeta("last_run", new Date().toISOString());
-  return { fetched, isNew, ...result, ...tg, blog };
+  return { fetched, isNew, ...result, ...tg, ...fb, blog };
 }
 
 /** يفلتر ويحلل كل المنشورات اللي بحالة pending */
@@ -105,6 +109,31 @@ export async function publishQueued(limit = 10): Promise<{ tgSent: number; tgFai
 }
 
 /** يسحب الأرشيف القديم صفحة صفحة */
+/** ينشر الوظائف المنتظرة بصفحة فيسبوك */
+export async function publishFacebookQueue(limit = 5): Promise<{ fbSent: number; fbFailed: number }> {
+  const cfg = getSettings();
+  let fbSent = 0, fbFailed = 0;
+  if (!cfg.fb_enabled || !cfg.fb_post_jobs) return { fbSent, fbFailed };
+
+  const maxAge = cfg.publish_max_age_hours * 3600;
+  const nowTs = Math.floor(Date.now() / 1000);
+
+  for (const job of jobsAwaitingFacebook(limit)) {
+    if (job.posted_ts && nowTs - job.posted_ts > maxAge) {
+      setFacebookStatus(job.id, "skipped");
+      continue;
+    }
+    const r = await postToPage(cfg, fbJobMessage(job, cfg), {
+      photo: cfg.fb_include_photo ? job.photos[0] : undefined,
+      link: cfg.fb_include_link && !cfg.fb_include_photo ? `${cfg.site_url}/job/${job.id}` : undefined,
+    });
+    markFacebook(job.id, r.ok, { postId: r.postId, error: r.error });
+    r.ok ? fbSent++ : fbFailed++;
+    await sleep(cfg.fb_delay_seconds * 1000);
+  }
+  return { fbSent, fbFailed };
+}
+
 /** يولّد منشور مدونة إذا حان وقته، وينشره بالقناة */
 export async function runBlog(force = false): Promise<string> {
   const cfg = getSettings();
@@ -118,15 +147,21 @@ export async function runBlog(force = false): Promise<string> {
     return `فشل توليد المدونة: ${e instanceof Error ? e.message : e}`;
   }
 
-  if (!cfg.blog_publish_channel || !cfg.publish_enabled) {
-    return `منشور مدونة جديد: ${post.title}`;
+  const where: string[] = ["الموقع"];
+
+  if (cfg.blog_publish_channel && cfg.publish_enabled) {
+    const r = await sendPost(cfg, blogMessage(post, cfg));
+    markBlogTelegram(post.id, r.ok, r.messageId);
+    where.push(r.ok ? "القناة" : `القناة (فشل: ${r.error})`);
   }
 
-  const r = await sendPost(cfg, blogMessage(post, cfg));
-  markBlogTelegram(post.id, r.ok, r.messageId);
-  return r.ok
-    ? `منشور مدونة نُشر بالموقع والقناة: ${post.title}`
-    : `منشور مدونة نُشر بالموقع، وفشل بالقناة: ${r.error}`;
+  if (cfg.fb_enabled && cfg.fb_post_blog) {
+    const r = await postToPage(cfg, fbBlogMessage(post, cfg));
+    markBlogFacebook(post.id, r.ok, r.postId);
+    where.push(r.ok ? "فيسبوك" : `فيسبوك (فشل: ${r.error})`);
+  }
+
+  return `منشور مدونة «${post.title}» → ${where.join(" · ")}`;
 }
 
 /** يعيد إرسال منشورات المدونة العالقة بالطابور */

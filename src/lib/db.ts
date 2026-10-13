@@ -97,6 +97,8 @@ function migrate(d: DatabaseSync) {
       author      TEXT NOT NULL DEFAULT 'bot',
       tg_status   TEXT NOT NULL DEFAULT 'idle',
       tg_message_id INTEGER,
+      fb_status   TEXT NOT NULL DEFAULT 'idle',
+      fb_post_id  TEXT,
       views       INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_blog_date ON blog(created_ts DESC);
@@ -150,9 +152,12 @@ function migrate(d: DatabaseSync) {
   add("tg_message_id", "INTEGER");
   add("tg_sent_at", "TEXT");
   add("tg_error", "TEXT");
+  add("fb_status", "TEXT NOT NULL DEFAULT 'idle'");
+  add("fb_post_id", "TEXT");
 
   // الفهارس اللي تعتمد على أعمدة مضافة لاحقاً — بعد ما نتأكد إنها موجودة
   d.exec(`CREATE INDEX IF NOT EXISTS idx_tg_queue ON posts(tg_status, posted_ts) WHERE status = 'published'`);
+  d.exec(`CREATE INDEX IF NOT EXISTS idx_fb_queue ON posts(fb_status, posted_ts) WHERE status = 'published'`);
 
   // الصفوف القديمة: رقم المنشور بالمصدر كان هو نفسه المعرّف
   d.exec(`UPDATE posts SET source_id = id WHERE source_id IS NULL`);
@@ -350,7 +355,8 @@ export function applyExtraction(
       experience=@experience, vacancies=@vacancies, phones=@phones, contacts=@contacts,
       apply_method=@apply_method, summary=@summary, tags=@tags, search_blob=@blob,
       classified_at=@classified_at, classifier=@classifier,
-      tg_status=CASE WHEN @status='published' AND tg_status='idle' THEN 'queued' ELSE tg_status END
+      tg_status=CASE WHEN @status='published' AND tg_status='idle' THEN 'queued' ELSE tg_status END,
+      fb_status=CASE WHEN @status='published' AND fb_status='idle' THEN 'queued' ELSE fb_status END
     WHERE id=@id
   `).run({
     id, status, is_job: e.is_job ? 1 : 0, confidence: e.confidence, reason: e.reason ?? null,
@@ -377,7 +383,10 @@ export function setStatus(id: number, status: JobStatus) {
       status = @status,
       tg_status = CASE
         WHEN @status = 'published' AND tg_status IN ('idle', 'skipped') THEN 'queued'
-        ELSE tg_status END
+        ELSE tg_status END,
+      fb_status = CASE
+        WHEN @status = 'published' AND fb_status IN ('idle', 'skipped') THEN 'queued'
+        ELSE fb_status END
     WHERE id = @id
   `).run({ id, status });
 }
@@ -528,6 +537,27 @@ export function markTelegram(id: number, ok: boolean, info: { messageId?: number
     .run(id, new Date().toISOString(), ok ? 1 : 0, (info.error ?? `message_id=${info.messageId ?? "?"}`).slice(0, 400));
 }
 
+/** الوظائف المنشورة اللي بعدها ما انرسلت لفيسبوك */
+export function jobsAwaitingFacebook(limit = 5): JobRow[] {
+  const rows = db().prepare(
+    `SELECT * FROM posts WHERE status='published' AND fb_status='queued'
+     ORDER BY posted_ts ASC, id ASC LIMIT ?`
+  ).all(limit) as any[];
+  return rows.map(hydrate);
+}
+
+export function markFacebook(id: number, ok: boolean, info: { postId?: string; error?: string }) {
+  db().prepare(`UPDATE posts SET fb_status=?, fb_post_id=? WHERE id=?`)
+    .run(ok ? "sent" : "failed", info.postId ?? null, id);
+  db().prepare(`INSERT INTO publish_log (post_id, at, ok, detail) VALUES (?,?,?,?)`)
+    .run(id, new Date().toISOString(), ok ? 1 : 0,
+         `facebook: ${(info.error ?? info.postId ?? "").slice(0, 300)}`);
+}
+
+export function setFacebookStatus(id: number, st: string) {
+  db().prepare(`UPDATE posts SET fb_status=? WHERE id=?`).run(st, id);
+}
+
 export function setTelegramStatus(id: number, st: string, note: string | null = null) {
   db().prepare(`UPDATE posts SET tg_status=?, tg_error=? WHERE id=?`).run(st, note, id);
 }
@@ -579,6 +609,9 @@ export function fullStats() {
       (SELECT COUNT(*) FROM posts WHERE tg_status='queued' AND status='published') tg_queued,
       (SELECT COUNT(*) FROM posts WHERE tg_status='failed') tg_failed,
       (SELECT COUNT(*) FROM posts WHERE tg_status='skipped') tg_skipped,
+      (SELECT COUNT(*) FROM posts WHERE fb_status='sent')   fb_sent,
+      (SELECT COUNT(*) FROM posts WHERE fb_status='queued' AND status='published') fb_queued,
+      (SELECT COUNT(*) FROM posts WHERE fb_status='failed') fb_failed,
       (SELECT COUNT(*) FROM posts WHERE posted_ts >= strftime('%s','now') - 86400) today,
       (SELECT COUNT(*) FROM posts WHERE status='published' AND posted_ts >= strftime('%s','now') - 604800) week
   `).get() as any;
@@ -706,6 +739,11 @@ export function blogAwaitingTelegram(limit = 3): BlogPost[] {
   return db().prepare(
     `SELECT * FROM blog WHERE tg_status = 'queued' ORDER BY created_ts ASC LIMIT ?`
   ).all(limit) as unknown as BlogPost[];
+}
+
+export function markBlogFacebook(id: number, ok: boolean, postId?: string) {
+  db().prepare(`UPDATE blog SET fb_status = ?, fb_post_id = ? WHERE id = ?`)
+    .run(ok ? "sent" : "failed", postId ?? null, id);
 }
 
 export function markBlogTelegram(id: number, ok: boolean, messageId?: number) {

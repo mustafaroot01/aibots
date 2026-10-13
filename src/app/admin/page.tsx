@@ -41,6 +41,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       good: `شغالة بـ ${ps.active === "gemini" ? "Gemini" : "Claude"} (${ps.model})`,
       bad: "ما موجود مفتاح — الفلترة تشتغل بالكلمات المفتاحية بس" },
     { ok: cfg.publish_enabled && !!cfg.publish_bot_token && !!cfg.publish_channel, label: "النشر بقناتك", good: `مفعّل → ${cfg.publish_channel}`, bad: "مطفي — فعّله من الإعدادات" },
+    { ok: cfg.fb_enabled && !!cfg.fb_page_token && !!cfg.fb_page_id, label: "النشر بفيسبوك",
+      good: `مفعّل → صفحة ${cfg.fb_page_id}`, bad: "مطفي — شغّل npm run setup-fb أو فعّله من الإعدادات" },
     { ok: !!lastRun && Date.now() - new Date(lastRun).getTime() < cfg.poll_seconds * 4000, label: "عامل الخلفية", good: `آخر دورة ${timeAgo(lastRun)}`, bad: lastRun ? `آخر دورة ${timeAgo(lastRun)} — تأكد إن العامل شغال` : "ما اشتغل بعد" },
   ];
 
@@ -58,6 +60,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         <div className="kpi warn"><b>بطابور القناة</b><span>{s.tg_queued}</span></div>
         <div className="kpi bad"><b>فشل إرسالها</b><span>{s.tg_failed}</span></div>
         <div className="kpi"><b>تخطيناها (قديمة)</b><span>{s.tg_skipped}</span></div>
+        <div className="kpi ok"><b>نُشرت بفيسبوك</b><span>{s.fb_sent}</span></div>
+        <div className="kpi warn"><b>بطابور فيسبوك</b><span>{s.fb_queued}</span></div>
       </div>
 
       <div className="adm-card">

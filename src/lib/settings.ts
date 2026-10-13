@@ -55,6 +55,17 @@ export interface Settings {
   publish_include_link: boolean;
   publish_delay_seconds: number;
 
+  // النشر بصفحة فيسبوك
+  fb_enabled: boolean;
+  fb_page_id: string;
+  fb_page_token: string;      // توكن الصفحة (مشفّر بالتخزين)
+  fb_post_jobs: boolean;
+  fb_post_blog: boolean;
+  fb_include_photo: boolean;
+  fb_include_link: boolean;
+  fb_delay_seconds: number;
+  fb_footer: string;
+
   // المدونة — محتوى تحفيزي مولّد ينشر بالموقع وبالقناة
   blog_enabled: boolean;
   blog_per_day: number;
@@ -152,6 +163,16 @@ export function defaults(): Settings {
     publish_include_link: true,
     publish_delay_seconds: 4,
 
+    fb_enabled: false,
+    fb_page_id: process.env.FB_PAGE_ID || "",
+    fb_page_token: process.env.FB_PAGE_TOKEN || "",
+    fb_post_jobs: true,
+    fb_post_blog: true,
+    fb_include_photo: true,
+    fb_include_link: true,
+    fb_delay_seconds: 8,
+    fb_footer: "",
+
     blog_enabled: false,
     blog_per_day: 3,
     blog_publish_channel: true,
@@ -166,6 +187,7 @@ export function defaults(): Settings {
 const NUM_RANGE: Record<string, [number, number]> = {
   publish_delay_seconds: [1, 120],
   blog_per_day: [1, 12],
+  fb_delay_seconds: [3, 300],
   publish_max_age_hours: [1, 8760],
   poll_seconds: [30, 86_400],
   claude_batch_size: [1, 20],
@@ -190,6 +212,7 @@ export function getSettings(): Settings {
   // التوكن ينخزن مشفّر — نفكه للاستعمال الداخلي فقط
   value.publish_bot_token = decryptSecret(value.publish_bot_token);
   value.google_service_account = decryptSecret(value.google_service_account);
+  value.fb_page_token = decryptSecret(value.fb_page_token);
   cache = { at: Date.now(), value };
   return value;
 }
@@ -200,6 +223,7 @@ export function saveSettings(patch: Partial<Settings>): Settings {
     ...next,
     publish_bot_token: next.publish_bot_token ? encryptSecret(next.publish_bot_token) : "",
     google_service_account: next.google_service_account ? encryptSecret(next.google_service_account) : "",
+    fb_page_token: next.fb_page_token ? encryptSecret(next.fb_page_token) : "",
   };
   setMeta("settings", JSON.stringify(onDisk));
   cache = null;
@@ -253,6 +277,16 @@ function sanitize(s: Settings): Settings {
   out.publish_include_photo = Boolean(out.publish_include_photo);
   out.publish_include_phones = Boolean(out.publish_include_phones);
   out.publish_include_link = Boolean(out.publish_include_link);
+  out.fb_enabled = Boolean(out.fb_enabled);
+  out.fb_post_jobs = Boolean(out.fb_post_jobs);
+  out.fb_post_blog = Boolean(out.fb_post_blog);
+  out.fb_include_photo = Boolean(out.fb_include_photo);
+  out.fb_include_link = Boolean(out.fb_include_link);
+  out.fb_page_id = String(out.fb_page_id || "").trim().replace(/[^\w.-]/g, "").slice(0, 64);
+  out.fb_footer = String(out.fb_footer || "").slice(0, 300);
+  const fbTok = String(out.fb_page_token || "").trim();
+  out.fb_page_token = isEncrypted(fbTok) ? fbTok : fbTok.slice(0, 500);
+
   out.blog_enabled = Boolean(out.blog_enabled);
   out.blog_publish_channel = Boolean(out.blog_publish_channel);
   out.blog_footer = String(out.blog_footer || "").slice(0, 300);

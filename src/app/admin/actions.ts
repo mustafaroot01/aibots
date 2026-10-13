@@ -9,6 +9,7 @@ import { attemptLogin, requireAdmin, safeBack, setLoginError, signOut, signOutEv
 import { getSettings, resetSettings, saveSettings, textToList, type Settings } from "@/lib/settings";
 import { ingestOnce, markForReclassify, processPending, publishQueued, runBlog } from "@/lib/ingest";
 import { publishJob, sendTestMessage, testConnection } from "@/lib/publisher";
+import { postToPage, testConnection as fbTest } from "@/lib/facebook";
 import { announce, newIndexNowKey, parseServiceAccount } from "@/lib/indexing";
 import { deleteBlogPost, listBlog, searchJobs } from "@/lib/db";
 import type { JobStatus } from "@/lib/types";
@@ -192,6 +193,18 @@ export async function saveSettingsAction(formData: FormData) {
     const token = str(formData, "publish_bot_token");
     // نخلي التوكن القديم إذا الحقل انترك فارغ
     if (token && !token.startsWith("•")) patch.publish_bot_token = token;
+  } else if (section === "facebook") {
+    patch.fb_enabled = bool(formData, "fb_enabled");
+    patch.fb_page_id = str(formData, "fb_page_id");
+    patch.fb_post_jobs = bool(formData, "fb_post_jobs");
+    patch.fb_post_blog = bool(formData, "fb_post_blog");
+    patch.fb_include_photo = bool(formData, "fb_include_photo");
+    patch.fb_include_link = bool(formData, "fb_include_link");
+    patch.fb_delay_seconds = num(formData, "fb_delay_seconds");
+    patch.fb_footer = str(formData, "fb_footer");
+    const fbTok = str(formData, "fb_page_token");
+    if (fbTok && !fbTok.startsWith("•")) patch.fb_page_token = fbTok;
+
   } else if (section === "blog") {
     patch.blog_enabled = bool(formData, "blog_enabled");
     patch.blog_per_day = num(formData, "blog_per_day");
@@ -309,4 +322,42 @@ export async function deleteBlogAction(formData: FormData) {
   deleteBlogPost(num(formData, "id"));
   revalidatePath("/blog");
   redirect(`/admin/settings?msg=${encodeURIComponent("انحذف المنشور")}#blog`);
+}
+
+
+/** يبني إعدادات مؤقتة من القيم المكتوبة — للفحص قبل الحفظ */
+function draftFacebook(formData: FormData) {
+  const cfg = getSettings();
+  const token = str(formData, "fb_page_token");
+  const pageId = str(formData, "fb_page_id");
+  return {
+    ...cfg,
+    fb_page_token: token && !token.startsWith("•") ? token : cfg.fb_page_token,
+    fb_page_id: pageId || cfg.fb_page_id,
+  };
+}
+
+export async function fbTestAction(formData: FormData) {
+  await requireAdmin();
+  let msg: string;
+  try {
+    const r = await fbTest(draftFacebook(formData));
+    msg = `✅ متصل بصفحة: ${r.page} (${r.id})`;
+  } catch (e) {
+    msg = `❌ ${e instanceof Error ? e.message : e}`;
+  }
+  redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#facebook`);
+}
+
+export async function fbTestPostAction(formData: FormData) {
+  await requireAdmin();
+  const draft = { ...draftFacebook(formData), fb_enabled: true };
+  let msg: string;
+  try {
+    const r = await postToPage(draft, "✅ تم ربط الصفحة بنجاح — منشور تجريبي من لوحة تحكم موقع الوظائف.");
+    msg = r.ok ? `✅ انرسل منشور تجريبي (${r.postId})` : `❌ ${r.error}`;
+  } catch (e) {
+    msg = `❌ ${e instanceof Error ? e.message : e}`;
+  }
+  redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#facebook`);
 }

@@ -24,6 +24,7 @@ async function runOnce() {
   log(
     `سحبنا ${r.fetched} | جديد ${r.isNew} | تصنيف ${r.classified} (${r.classifier}) → نُشر ${r.published}، رُفض ${r.rejected}` +
     (r.tgSent || r.tgFailed ? ` | قناتك: أُرسل ${r.tgSent}، فشل ${r.tgFailed}` : "") +
+    (r.fbSent || r.fbFailed ? ` | فيسبوك: ${r.fbSent}/${r.fbSent + r.fbFailed}` : "") +
     (r.blog ? ` | ${r.blog}` : "")
   );
 }

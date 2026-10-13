@@ -12,8 +12,8 @@ import { SecretField, SettingsCard, Toggle } from "@/components/form-bits";
 import { Alert, Briefcase, Building, Search, Telegram, Users } from "@/components/icons";
 import { timeAgo } from "@/lib/format";
 import {
-  blogNowAction, deleteBlogAction, newIndexKeyAction, pingIndexAction,
-  resetSettingsAction, saveSettingsAction, sendTestAction, testBotAction,
+  blogNowAction, deleteBlogAction, fbTestAction, fbTestPostAction, newIndexKeyAction,
+  pingIndexAction, resetSettingsAction, saveSettingsAction, sendTestAction, testBotAction,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +26,7 @@ const SECTIONS = [
   { id: "source", label: "المصدر" },
   { id: "ai", label: "الفلترة" },
   { id: "publish", label: "النشر بقناتك" },
+  { id: "facebook", label: "فيسبوك" },
   { id: "blog", label: "المدونة" },
   { id: "indexing", label: "محركات البحث" },
   { id: "display", label: "العرض" },
@@ -359,12 +360,91 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </SettingsCard>
       </form>
 
+      {/* ————— فيسبوك ————— */}
+      <form action={saveSettingsAction}>
+        <input type="hidden" name="section" value="facebook" />
+        <SettingsCard
+          id="facebook"
+          title={<><Users /> ٥. النشر بصفحة فيسبوك</>}
+          badge={s.fb_enabled && s.fb_page_token && s.fb_page_id ? "مفعّل" : s.fb_enabled ? "ناقص إعدادات" : "مطفي"}
+          badgeTone={s.fb_enabled && s.fb_page_token && s.fb_page_id ? "" : s.fb_enabled ? "warn" : "muted"}
+          hint={<>
+            ينشر الوظائف ومنشورات المدونة بصفحتك على فيسبوك تلقائياً.
+            يحتاج <b>تطبيق Meta</b> + <b>توكن صفحة</b> + <b>معرّف الصفحة</b> — والشرح بالأسفل.
+          </>}
+          extraButtons={
+            <>
+              <button className="btn" type="submit" formAction={fbTestAction} formNoValidate>فحص الاتصال</button>
+              <button className="btn" type="submit" formAction={fbTestPostAction} formNoValidate>منشور تجريبي</button>
+            </>
+          }
+        >
+          <Toggle name="fb_enabled" label="تفعيل النشر بفيسبوك"
+            hint="لما يكون مطفي، ما ينرسل شي للصفحة"
+            defaultChecked={s.fb_enabled} />
+
+          <div className="form-grid two" style={{ marginTop: 14 }}>
+            <div className="field">
+              <label htmlFor="fb_page_id">معرّف الصفحة (Page ID)</label>
+              <input id="fb_page_id" name="fb_page_id" type="text" dir="ltr"
+                defaultValue={s.fb_page_id} placeholder="1234567890123456" />
+              <div className="desc">تلكاه بصفحتك ← About ← Page ID، أو من Graph API Explorer.</div>
+            </div>
+            <div className="field">
+              <label htmlFor="fb_page_token">توكن الصفحة</label>
+              <SecretField id="fb_page_token" name="fb_page_token"
+                placeholder={s.fb_page_token ? "محفوظ — اتركه فارغ إذا ما تريد تغييره" : "EAAG..."}
+                saved={Boolean(s.fb_page_token)} />
+              <div className="desc">
+                <b>توكن صفحة طويل الأمد</b> — ينخزن مشفّر وما ينعرض بعد الحفظ.
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="fb_delay_seconds">فاصل بين المنشورات (ثانية)</label>
+              <input id="fb_delay_seconds" name="fb_delay_seconds" type="number" inputMode="numeric"
+                min={3} max={300} defaultValue={s.fb_delay_seconds} />
+              <div className="desc">فيسبوك أحساس من تلجرام — الموصى به ٨ ثواني أو أكثر.</div>
+            </div>
+          </div>
+
+          <div className="section-label">شنو ينشر</div>
+          <div className="form-grid two">
+            <Toggle name="fb_post_jobs" label="الوظائف" defaultChecked={s.fb_post_jobs} />
+            <Toggle name="fb_post_blog" label="منشورات المدونة" defaultChecked={s.fb_post_blog} />
+            <Toggle name="fb_include_photo" label="صورة الإعلان" defaultChecked={s.fb_include_photo} />
+            <Toggle name="fb_include_link" label="رابط الموقع" defaultChecked={s.fb_include_link} />
+          </div>
+
+          <div className="field" style={{ marginTop: 14 }}>
+            <label htmlFor="fb_footer">سطر إضافي</label>
+            <input id="fb_footer" name="fb_footer" type="text" defaultValue={s.fb_footer}
+              placeholder="مثال: تابعونا لكل وظائف ديالى" maxLength={300} />
+          </div>
+
+          <div className="section-label">شلون تجيب التوكن</div>
+          <div className="preview-box" style={{ fontSize: 13, lineHeight: 2 }}>
+{`١) developers.facebook.com ← My Apps ← Create App ← نوع: Business
+٢) ضيف منتج: Facebook Login for Business
+٣) افتح Graph API Explorer، اختار تطبيقك
+٤) من Permissions اختار: pages_manage_posts و pages_read_engagement
+٥) اضغط Generate Access Token ووافق على صفحتك
+٦) بدّل القائمة من User Token الى Page Token واختار صفحتك
+٧) انسخ التوكن ← هذا قصير الأمد (ساعة)
+
+لتوكن طويل الأمد (ما ينتهي):
+   افتح Access Token Debugger، الصق التوكن، واضغط Extend Access Token
+
+معرّف الصفحة: صفحتك ← About ← أسفل الصفحة Page ID`}
+          </div>
+        </SettingsCard>
+      </form>
+
       {/* ————— المدونة ————— */}
       <form action={saveSettingsAction}>
         <input type="hidden" name="section" value="blog" />
         <SettingsCard
           id="blog"
-          title={<><Briefcase /> ٥. المدونة — محتوى تحفيزي</>}
+          title={<><Briefcase /> ٦. المدونة — محتوى تحفيزي</>}
           badge={s.blog_enabled ? `${s.blog_per_day} يومياً` : "مطفي"}
           badgeTone={s.blog_enabled ? "" : "muted"}
           hint={<>
@@ -451,7 +531,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <input type="hidden" name="section" value="indexing" />
         <SettingsCard
           id="indexing"
-          title={<><Search /> ٦. محركات البحث والفهرسة الفورية</>}
+          title={<><Search /> ٧. محركات البحث والفهرسة الفورية</>}
           badge={s.indexing_google || s.indexing_indexnow ? "مفعّل" : "مطفي"}
           badgeTone={s.indexing_google || s.indexing_indexnow ? "" : "muted"}
           hint={<>بدل ما تنتظر كوكل يزحف لموقعك (أسابيع)، نخبره بكل وظيفة <b>لحظة نشرها</b>.</>}
@@ -527,7 +607,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       {/* ————— ٦. عرض الموقع ————— */}
       <form action={saveSettingsAction}>
         <input type="hidden" name="section" value="display" />
-        <SettingsCard id="display" title={<><Building /> ٧. عرض الموقع</>}>
+        <SettingsCard id="display" title={<><Building /> ٨. عرض الموقع</>}>
           <div className="form-grid two">
             <div className="field">
               <label htmlFor="per_page">عدد الوظائف بالصفحة</label>
@@ -550,7 +630,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
       {/* ————— ٦. إعادة ضبط ————— */}
       <div className="adm-card" id="danger">
-        <h2><Alert /> ٨. إعادة ضبط</h2>
+        <h2><Alert /> ٩. إعادة ضبط</h2>
         <p className="hint">يرجّع كل الإعدادات لقيمها الافتراضية (بضمنها توكن البوت والقالب). المنشورات ما تنمس.</p>
         <form action={resetSettingsAction}>
           <ConfirmButton
