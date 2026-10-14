@@ -43,13 +43,64 @@ function readError(err: any, status = 0): string {
     return `التوكن غير صالح: ${msg}`;
   }
   if (code === 200 || code === 10) {
-    return "ما عندك صلاحية النشر — تأكد من إضافة pages_manage_posts وإنك أدمن بالصفحة";
+    return "ما عندك صلاحية النشر — غالباً التوكن توكن مستخدم مو توكن صفحة. "
+      + "شغّل: npm run setup-fb (يبدّله تلقائياً)";
   }
   if (code === 100) return `طلب غير صالح: ${msg}`;
   if (code === 368) return "فيسبوك حظر النشر مؤقتاً بسبب كثرة المنشورات — قلّل المعدل";
   if (code === 4 || code === 17 || code === 613) return "تجاوزنا حد الطلبات — ننتظر شوي";
   if (code === 803) return "معرّف الصفحة غير موجود";
   return `${msg || "خطأ غير معروف"} (code ${code})`;
+}
+
+// ————— تمييز نوع التوكن —————
+//
+// غلطة شائعة: المستخدم ينسخ توكن المستخدم (User) من Graph API Explorer
+// بدل توكن الصفحة (Page). الاثنين يقدرون يقرون الصفحة، بس بس توكن
+// الصفحة يقدر ينشر بيها — فالفحص ينجح والنشر يفشل بـ code 200.
+// الحل: نميّز النوع، وإذا كان توكن مستخدم نبدّله بتوكن الصفحة تلقائياً.
+
+async function get<T = any>(path: string): Promise<T> {
+  const res = await fetch(`${API}/${path}`, { signal: AbortSignal.timeout(20_000) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.error) throw new Error(readError(data?.error, res.status));
+  return data as T;
+}
+
+/** يرجع نوع التوكن: "PAGE" أو "USER" أو "" إذا ما عرفناه */
+export async function tokenType(token: string): Promise<string> {
+  try {
+    const t = encodeURIComponent(token);
+    const d = await get<{ data?: { type?: string } }>(`debug_token?input_token=${t}&access_token=${t}`);
+    return String(d.data?.type ?? "").toUpperCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * يضمن إن التوكن توكن صفحة. إذا انلصق توكن مستخدم، يجيب توكن
+ * الصفحة المقابل من /me/accounts — وهذا بعد يطلع توكن بلا انتهاء
+ * إذا كان توكن المستخدم طويل الأمد.
+ */
+export async function resolvePageToken(
+  pageId: string, token: string
+): Promise<{ token: string; swapped: boolean }> {
+  if ((await tokenType(token)) !== "USER") return { token, swapped: false };
+
+  const d = await get<{ data?: { id: string; name: string; access_token: string }[] }>(
+    `me/accounts?fields=id,name,access_token&limit=100&access_token=${encodeURIComponent(token)}`
+  );
+  const page = (d.data ?? []).find((p) => p.id === pageId);
+  if (!page?.access_token) {
+    const names = (d.data ?? []).map((p) => `${p.name} (${p.id})`).join("، ");
+    throw new Error(
+      names
+        ? `هذا توكن مستخدم، وما لكينا الصفحة ${pageId} بصفحاتك. صفحاتك: ${names}`
+        : "هذا توكن مستخدم وما عندك صفحات — تأكد إنك أدمن بالصفحة وإن pages_show_list مضافة"
+    );
+  }
+  return { token: page.access_token, swapped: true };
 }
 
 /** يفحص التوكن والصفحة — يرجع اسم الصفحة */
@@ -153,6 +204,20 @@ export async function postToPage(
     return { ok: true, postId: r.id };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** يمسح منشوراً من الصفحة — نستعمله لتنظيف منشور الاختبار */
+export async function deletePost(s: Settings, postId: string): Promise<boolean> {
+  if (!s.fb_page_token) return false;
+  try {
+    const res = await fetch(
+      `${API}/${encodeURIComponent(postId)}?access_token=${encodeURIComponent(s.fb_page_token)}`,
+      { method: "DELETE", signal: AbortSignal.timeout(20_000) }
+    );
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 
