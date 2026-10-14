@@ -2,7 +2,7 @@ import { guardPage } from "@/lib/auth";
 import { adminSearch } from "@/lib/db";
 import { adminQs, timeAgo } from "@/lib/format";
 import { Toast } from "@/components/toast";
-import { changeStatusAction, publishOneAction, requeueAction } from "../actions";
+import { changeStatusAction, publishOneAction, requeueAction, requeueFbAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +62,9 @@ export default async function AdminPosts({ searchParams }: { searchParams: Promi
               {j.tg_status !== "idle" && (
                 <span className="badge" title={j.tg_error ?? undefined}>قناتك: {TG_LABEL[j.tg_status]}</span>
               )}
+              {j.fb_status !== "idle" && (
+                <span className="badge" title={j.fb_error ?? undefined}>فيسبوك: {TG_LABEL[j.fb_status]}</span>
+              )}
               <span className="t">{j.title || j.raw_text.slice(0, 60) || "(بدون نص)"}</span>
               {j.confidence != null && (
                 <span className="conf" title="درجة ثقة التصنيف">
@@ -82,6 +85,7 @@ export default async function AdminPosts({ searchParams }: { searchParams: Promi
               {j.classifier && <span>المصنّف: {j.classifier}</span>}
               {j.reason && <span>السبب: {j.reason}</span>}
               {j.tg_error && <span style={{ color: "var(--danger)" }}>{j.tg_error}</span>}
+              {j.fb_error && <span style={{ color: "var(--danger)" }}>فيسبوك: {j.fb_error}</span>}
             </div>
 
             <div className="acts">
@@ -105,7 +109,17 @@ export default async function AdminPosts({ searchParams }: { searchParams: Promi
                 <form action={requeueAction}>
                   <input type="hidden" name="id" value={j.id} />
                   <input type="hidden" name="back" value={back} />
-                  <button className="mini" type="submit">رجّعه للطابور</button>
+                  <button className="mini" type="submit">رجّعه لطابور القناة</button>
+                </form>
+              )}
+
+              {j.status === "published" && j.fb_status !== "queued" && j.fb_status !== "sent" && (
+                <form action={requeueFbAction}>
+                  <input type="hidden" name="id" value={j.id} />
+                  <input type="hidden" name="back" value={back} />
+                  <button className="mini" type="submit">
+                    {j.fb_status === "failed" ? "أعد المحاولة بفيسبوك" : "انشره بفيسبوك"}
+                  </button>
                 </form>
               )}
 

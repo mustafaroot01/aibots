@@ -50,6 +50,9 @@ export interface JobRow extends Extraction {
   tg_message_id: number | null;
   tg_sent_at: string | null;
   tg_error: string | null;
+  fb_status: TgStatus;
+  fb_post_id: string | null;
+  fb_error: string | null;
 }
 
 /** التصنيفات المعتمدة بالموقع */

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
-  getJob, markTelegram, setStatus, setTelegramStatus,
+  getJob, markTelegram, setFacebookStatus, setStatus, setTelegramStatus,
 } from "@/lib/db";
 import { attemptLogin, requireAdmin, safeBack, setLoginError, signOut, signOutEverywhere } from "@/lib/auth";
 import { getSettings, resetSettings, saveSettings, textToList, type Settings } from "@/lib/settings";
@@ -90,6 +90,16 @@ export async function requeueAction(formData: FormData) {
   const id = num(formData, "id");
   const back = safeBack(str(formData, "back"));
   setTelegramStatus(id, "queued");
+  revalidatePath("/admin/posts");
+  redirect(back);
+}
+
+/** يرجّع منشور لطابور النشر بفيسبوك */
+export async function requeueFbAction(formData: FormData) {
+  await requireAdmin();
+  const id = num(formData, "id");
+  const back = safeBack(str(formData, "back"));
+  setFacebookStatus(id, "queued");
   revalidatePath("/admin/posts");
   redirect(back);
 }

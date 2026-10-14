@@ -154,6 +154,7 @@ function migrate(d: DatabaseSync) {
   add("tg_error", "TEXT");
   add("fb_status", "TEXT NOT NULL DEFAULT 'idle'");
   add("fb_post_id", "TEXT");
+  add("fb_error", "TEXT");
 
   // الفهارس اللي تعتمد على أعمدة مضافة لاحقاً — بعد ما نتأكد إنها موجودة
   d.exec(`CREATE INDEX IF NOT EXISTS idx_tg_queue ON posts(tg_status, posted_ts) WHERE status = 'published'`);
@@ -547,8 +548,8 @@ export function jobsAwaitingFacebook(limit = 5): JobRow[] {
 }
 
 export function markFacebook(id: number, ok: boolean, info: { postId?: string; error?: string }) {
-  db().prepare(`UPDATE posts SET fb_status=?, fb_post_id=? WHERE id=?`)
-    .run(ok ? "sent" : "failed", info.postId ?? null, id);
+  db().prepare(`UPDATE posts SET fb_status=?, fb_post_id=?, fb_error=? WHERE id=?`)
+    .run(ok ? "sent" : "failed", info.postId ?? null, ok ? null : (info.error ?? null), id);
   db().prepare(`INSERT INTO publish_log (post_id, at, ok, detail) VALUES (?,?,?,?)`)
     .run(id, new Date().toISOString(), ok ? 1 : 0,
          `facebook: ${(info.error ?? info.postId ?? "").slice(0, 300)}`);
