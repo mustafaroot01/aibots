@@ -9,7 +9,7 @@ import { attemptLogin, requireAdmin, safeBack, setLoginError, signOut, signOutEv
 import { getSettings, resetSettings, saveSettings, textToList, type Settings } from "@/lib/settings";
 import { ingestOnce, markForReclassify, processPending, publishQueued, runBlog } from "@/lib/ingest";
 import { publishJob, sendTestMessage, testConnection } from "@/lib/publisher";
-import { postToPage, testConnection as fbTest } from "@/lib/facebook";
+import { checkTokenExpiry, daysUntilExpiry, postToPage, refreshToken, testConnection as fbTest } from "@/lib/facebook";
 import { announce, newIndexNowKey, parseServiceAccount } from "@/lib/indexing";
 import { deleteBlogPost, listBlog, searchJobs } from "@/lib/db";
 import type { JobStatus } from "@/lib/types";
@@ -202,8 +202,11 @@ export async function saveSettingsAction(formData: FormData) {
     patch.fb_include_link = bool(formData, "fb_include_link");
     patch.fb_delay_seconds = num(formData, "fb_delay_seconds");
     patch.fb_footer = str(formData, "fb_footer");
+    patch.fb_app_id = str(formData, "fb_app_id");
     const fbTok = str(formData, "fb_page_token");
     if (fbTok && !fbTok.startsWith("•")) patch.fb_page_token = fbTok;
+    const fbSec = str(formData, "fb_app_secret");
+    if (fbSec && !fbSec.startsWith("•")) patch.fb_app_secret = fbSec;
 
   } else if (section === "blog") {
     patch.blog_enabled = bool(formData, "blog_enabled");
@@ -358,6 +361,37 @@ export async function fbTestPostAction(formData: FormData) {
     msg = r.ok ? `✅ انرسل منشور تجريبي (${r.postId})` : `❌ ${r.error}`;
   } catch (e) {
     msg = `❌ ${e instanceof Error ? e.message : e}`;
+  }
+  redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#facebook`);
+}
+
+
+/** يفحص مدة صلاحية التوكن ويخزنها */
+export async function fbCheckExpiryAction() {
+  await requireAdmin();
+  let msg: string;
+  try {
+    const exp = await checkTokenExpiry(getSettings());
+    const days = daysUntilExpiry();
+    msg = !exp
+      ? "✅ التوكن بلا تاريخ انتهاء — ما يحتاج تجديد"
+      : `التوكن ينتهي بعد ${days} يوم`;
+  } catch (e) {
+    msg = `❌ ${e instanceof Error ? e.message : e}`;
+  }
+  redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#facebook`);
+}
+
+/** يجدد توكن الصفحة يدوياً */
+export async function fbRefreshAction() {
+  await requireAdmin();
+  const r = await refreshToken(getSettings());
+  let msg: string;
+  if (r.ok && r.token) {
+    saveSettings({ fb_page_token: r.token });
+    msg = r.days ? `✅ انجدد التوكن — صالح ${r.days} يوم` : "✅ انجدد التوكن — بلا انتهاء";
+  } else {
+    msg = `❌ ${r.error}`;
   }
   redirect(`/admin/settings?msg=${encodeURIComponent(msg)}#facebook`);
 }

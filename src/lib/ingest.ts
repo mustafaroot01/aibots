@@ -1,12 +1,12 @@
-import { applyExtraction, insertRaw, jobsAwaitingTelegram, minSourceId, pendingPosts, setMeta, setTelegramStatus, db } from "./db";
+import { applyExtraction, getMeta, insertRaw, jobsAwaitingTelegram, minSourceId, pendingPosts, setMeta, setTelegramStatus, db } from "./db";
 import { classify, cleanTitle, rulesTitle } from "./classify";
 import { extractPhones } from "./phone";
 import { cleanBody, shorten } from "./text";
 import { publishJob, sendPost } from "./publisher";
 import { blogMessage, generatePost, isBlogDue, markBlogGenerated } from "./blog";
-import { fbBlogMessage, fbJobMessage, postToPage } from "./facebook";
+import { checkTokenExpiry, daysUntilExpiry, fbBlogMessage, fbJobMessage, postToPage, refreshToken } from "./facebook";
 import { blogAwaitingTelegram, jobsAwaitingFacebook, markBlogFacebook, markBlogTelegram, markFacebook, setFacebookStatus } from "./db";
-import { getSettings } from "./settings";
+import { getSettings, saveSettings, type Settings } from "./settings";
 import { announce } from "./indexing";
 import { fetchChannel } from "./telegram";
 import type { RawPost } from "./types";
@@ -115,6 +115,8 @@ export async function publishFacebookQueue(limit = 5): Promise<{ fbSent: number;
   let fbSent = 0, fbFailed = 0;
   if (!cfg.fb_enabled || !cfg.fb_post_jobs) return { fbSent, fbFailed };
 
+  await keepTokenAlive(cfg);
+
   const maxAge = cfg.publish_max_age_hours * 3600;
   const nowTs = Math.floor(Date.now() / 1000);
 
@@ -132,6 +134,32 @@ export async function publishFacebookQueue(limit = 5): Promise<{ fbSent: number;
     await sleep(cfg.fb_delay_seconds * 1000);
   }
   return { fbSent, fbFailed };
+}
+
+/**
+ * يتأكد إن توكن فيسبوك ما راح ينتهي قريباً.
+ * يفحص مرة باليوم، وإذا بقى أقل من ٢٠ يوم يجدده تلقائياً.
+ */
+async function keepTokenAlive(cfg: Settings) {
+  const lastCheck = Number(getMeta("fb_expiry_checked") || 0);
+  if (Date.now() - lastCheck < 86_400_000) return;      // فحص يومي يكفي
+
+  try {
+    const exp = await checkTokenExpiry(cfg);
+    setMeta("fb_expiry_checked", String(Date.now()));
+    if (!exp) return;                                    // بلا انتهاء — ما يحتاج شي
+
+    const days = daysUntilExpiry() ?? 999;
+    if (days > 20) return;
+
+    const r = await refreshToken(cfg);
+    if (r.ok && r.token) {
+      saveSettings({ fb_page_token: r.token });
+      console.log(`[facebook] انجدد التوكن تلقائياً — صالح ${r.days ?? "∞"} يوم`);
+    } else {
+      console.error(`[facebook] التوكن ينتهي بعد ${days} يوم وما قدرنا نجدده: ${r.error}`);
+    }
+  } catch { /* ما نخلي فحص التوكن يوقف النشر */ }
 }
 
 /** يولّد منشور مدونة إذا حان وقته، وينشره بالقناة */

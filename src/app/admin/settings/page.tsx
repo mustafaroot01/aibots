@@ -2,6 +2,7 @@ import { guardPage } from "@/lib/auth";
 import { getSettings, EFFORTS, MODELS, GEMINI_MODELS, PROVIDERS, listToText, channelsToText, settingsHealth } from "@/lib/settings";
 import { parseServiceAccount } from "@/lib/indexing";
 import { FORMATS, hoursUntilBlog } from "@/lib/blog";
+import { daysUntilExpiry } from "@/lib/facebook";
 import { listBlog } from "@/lib/db";
 import { searchJobs } from "@/lib/db";
 import { renderMessage } from "@/lib/publisher";
@@ -12,8 +13,9 @@ import { SecretField, SettingsCard, Toggle } from "@/components/form-bits";
 import { Alert, Briefcase, Building, Search, Telegram, Users } from "@/components/icons";
 import { timeAgo } from "@/lib/format";
 import {
-  blogNowAction, deleteBlogAction, fbTestAction, fbTestPostAction, newIndexKeyAction,
-  pingIndexAction, resetSettingsAction, saveSettingsAction, sendTestAction, testBotAction,
+  blogNowAction, deleteBlogAction, fbCheckExpiryAction, fbRefreshAction, fbTestAction,
+  fbTestPostAction, newIndexKeyAction, pingIndexAction, resetSettingsAction,
+  saveSettingsAction, sendTestAction, testBotAction,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +43,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const ps = providerStatus();
   const blogLeft = s.blog_enabled ? hoursUntilBlog(s) : null;
   const { rows: blogPosts, total: blogTotal } = listBlog(5, 1);
+  const fbDays = daysUntilExpiry();
 
   const sample = searchJobs({ perPage: 1, page: 1 }).rows[0];
   const preview = sample
@@ -376,6 +379,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <>
               <button className="btn" type="submit" formAction={fbTestAction} formNoValidate>فحص الاتصال</button>
               <button className="btn" type="submit" formAction={fbTestPostAction} formNoValidate>منشور تجريبي</button>
+              <button className="btn" type="submit" formAction={fbCheckExpiryAction} formNoValidate>افحص الصلاحية</button>
+              <button className="btn" type="submit" formAction={fbRefreshAction} formNoValidate>جدّد التوكن</button>
             </>
           }
         >
@@ -404,6 +409,35 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               <input id="fb_delay_seconds" name="fb_delay_seconds" type="number" inputMode="numeric"
                 min={3} max={300} defaultValue={s.fb_delay_seconds} />
               <div className="desc">فيسبوك أحساس من تلجرام — الموصى به ٨ ثواني أو أكثر.</div>
+            </div>
+          </div>
+
+          {fbDays !== null && (
+            <div className={`toast ${fbDays < 20 ? "bad" : ""}`} style={{ marginTop: 14 }}>
+              {fbDays < 0
+                ? "🔴 التوكن انتهت صلاحيته — ولّد واحد جديد"
+                : fbDays < 20
+                  ? `⚠️ التوكن ينتهي بعد ${fbDays} يوم — اضغط «جدّد التوكن»`
+                  : `التوكن صالح ${fbDays} يوم بعد`}
+            </div>
+          )}
+
+          <div className="section-label">تجديد تلقائي (اختياري)</div>
+          <p className="hint" style={{ marginTop: 0 }}>
+            إذا توكنك عنده تاريخ انتهاء، هذي الحقول تخلي النظام يجدده لحاله قبل ما ينتهي.
+            تلكاهن بتطبيقك ← <b>Settings → Basic</b>. (توكن بلا انتهاء ما يحتاجهن.)
+          </p>
+          <div className="form-grid two">
+            <div className="field">
+              <label htmlFor="fb_app_id">معرّف التطبيق (App ID)</label>
+              <input id="fb_app_id" name="fb_app_id" type="text" dir="ltr"
+                defaultValue={s.fb_app_id} placeholder="4073714819597267" />
+            </div>
+            <div className="field">
+              <label htmlFor="fb_app_secret">سر التطبيق (App Secret)</label>
+              <SecretField id="fb_app_secret" name="fb_app_secret"
+                placeholder={s.fb_app_secret ? "محفوظ — اتركه فارغ إذا ما تريد تغييره" : "App Secret"}
+                saved={Boolean(s.fb_app_secret)} />
             </div>
           </div>
 

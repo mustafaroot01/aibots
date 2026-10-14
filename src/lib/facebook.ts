@@ -8,6 +8,7 @@ import type { Settings } from "./settings";
 import type { BlogPost } from "./db";
 import { cleanBody, cutWords } from "./text";
 import { prettyPhone } from "./phone";
+import { getMeta, setMeta } from "./db";
 
 const API = "https://graph.facebook.com/v25.0";
 const POST_LIMIT = 5000;
@@ -62,6 +63,63 @@ export async function testConnection(s: Settings): Promise<{ page: string; id: s
 
   if (!res.ok || data?.error) throw new Error(readError(data?.error, res.status));
   return { page: data.name ?? "(بدون اسم)", id: data.id };
+}
+
+// ————— تجديد التوكن —————
+//
+// ميتا ألغت التوكن الدائمي: كل توكن صفحة عمره ٦٠ يوم كحد أقصى.
+// الحل إننا نبدّله بواحد جديد قبل ما ينتهي — وهذا ممكن بأي وقت
+// طالما التوكن الحالي ما انتهى بعد.
+
+const KEY_EXP = "fb_token_expires_at";
+
+/** يقرأ تاريخ انتهاء التوكن من فيسبوك ويخزنه */
+export async function checkTokenExpiry(s: Settings): Promise<number> {
+  if (!s.fb_page_token) return 0;
+  const u = `${API}/debug_token?input_token=${encodeURIComponent(s.fb_page_token)}&access_token=${encodeURIComponent(s.fb_page_token)}`;
+  const res = await fetch(u, { signal: AbortSignal.timeout(20_000) });
+  const d = await res.json().catch(() => ({}));
+  const exp = Number(d?.data?.expires_at ?? 0);
+  setMeta(KEY_EXP, String(exp));
+  return exp;
+}
+
+/** كم يوم باقي على انتهاء التوكن (من آخر فحص) */
+export function daysUntilExpiry(): number | null {
+  const exp = Number(getMeta(KEY_EXP) || 0);
+  if (!exp) return null;
+  return Math.floor((exp * 1000 - Date.now()) / 86_400_000);
+}
+
+export interface RefreshResult { ok: boolean; token?: string; days?: number; error?: string }
+
+/**
+ * يبدّل التوكن الحالي بواحد جديد عمره ٦٠ يوم.
+ * يحتاج معرّف التطبيق وسرّه — والتوكن الحالي لازم يكون لسه صالح.
+ */
+export async function refreshToken(s: Settings): Promise<RefreshResult> {
+  if (!s.fb_app_id || !s.fb_app_secret) {
+    return { ok: false, error: "محتاجين معرّف التطبيق وسرّه حتى نجدد تلقائياً" };
+  }
+  if (!s.fb_page_token) return { ok: false, error: "ما موجود توكن حالي" };
+
+  const u = `${API}/oauth/access_token?grant_type=fb_exchange_token`
+    + `&client_id=${encodeURIComponent(s.fb_app_id)}`
+    + `&client_secret=${encodeURIComponent(s.fb_app_secret)}`
+    + `&fb_exchange_token=${encodeURIComponent(s.fb_page_token)}`;
+
+  try {
+    const res = await fetch(u, { signal: AbortSignal.timeout(25_000) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || d?.error) return { ok: false, error: readError(d?.error, res.status) };
+    if (!d.access_token) return { ok: false, error: "ما رجع توكن جديد" };
+
+    const exp = await checkTokenExpiry({ ...s, fb_page_token: d.access_token });
+    const days = exp ? Math.floor((exp * 1000 - Date.now()) / 86_400_000) : 0;
+    return { ok: true, token: d.access_token, days };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export interface FbResult { ok: boolean; postId?: string; error?: string; skipped?: boolean }

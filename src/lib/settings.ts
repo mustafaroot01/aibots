@@ -59,6 +59,8 @@ export interface Settings {
   fb_enabled: boolean;
   fb_page_id: string;
   fb_page_token: string;      // توكن الصفحة (مشفّر بالتخزين)
+  fb_app_id: string;          // لتجديد التوكن تلقائياً
+  fb_app_secret: string;      // مشفّر — من Settings ← Basic بتطبيقك
   fb_post_jobs: boolean;
   fb_post_blog: boolean;
   fb_include_photo: boolean;
@@ -166,6 +168,8 @@ export function defaults(): Settings {
     fb_enabled: false,
     fb_page_id: process.env.FB_PAGE_ID || "",
     fb_page_token: process.env.FB_PAGE_TOKEN || "",
+    fb_app_id: process.env.FB_APP_ID || "",
+    fb_app_secret: process.env.FB_APP_SECRET || "",
     fb_post_jobs: true,
     fb_post_blog: true,
     fb_include_photo: true,
@@ -213,6 +217,7 @@ export function getSettings(): Settings {
   value.publish_bot_token = decryptSecret(value.publish_bot_token);
   value.google_service_account = decryptSecret(value.google_service_account);
   value.fb_page_token = decryptSecret(value.fb_page_token);
+  value.fb_app_secret = decryptSecret(value.fb_app_secret);
   cache = { at: Date.now(), value };
   return value;
 }
@@ -224,6 +229,7 @@ export function saveSettings(patch: Partial<Settings>): Settings {
     publish_bot_token: next.publish_bot_token ? encryptSecret(next.publish_bot_token) : "",
     google_service_account: next.google_service_account ? encryptSecret(next.google_service_account) : "",
     fb_page_token: next.fb_page_token ? encryptSecret(next.fb_page_token) : "",
+    fb_app_secret: next.fb_app_secret ? encryptSecret(next.fb_app_secret) : "",
   };
   setMeta("settings", JSON.stringify(onDisk));
   cache = null;
@@ -286,6 +292,9 @@ function sanitize(s: Settings): Settings {
   out.fb_footer = String(out.fb_footer || "").slice(0, 300);
   const fbTok = String(out.fb_page_token || "").trim();
   out.fb_page_token = isEncrypted(fbTok) ? fbTok : fbTok.slice(0, 500);
+  out.fb_app_id = String(out.fb_app_id || "").replace(/\D/g, "").slice(0, 32);
+  const fbSec = String(out.fb_app_secret || "").trim();
+  out.fb_app_secret = isEncrypted(fbSec) ? fbSec : fbSec.slice(0, 200);
 
   out.blog_enabled = Boolean(out.blog_enabled);
   out.blog_publish_channel = Boolean(out.blog_publish_channel);
