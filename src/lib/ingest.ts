@@ -147,17 +147,25 @@ async function keepTokenAlive(cfg: Settings) {
   try {
     const exp = await checkTokenExpiry(cfg);
     setMeta("fb_expiry_checked", String(Date.now()));
-    if (!exp) return;                                    // بلا انتهاء — ما يحتاج شي
 
-    const days = daysUntilExpiry() ?? 999;
-    if (days > 20) return;
+    // انتهاء الوصول ما يتجدد تلقائياً — لازم تعيد الموافقة بفيسبوك،
+    // فكل اللي نسويه إننا ننبّه بوقت كافي قبل ما ينطفي النشر.
+    if (exp.dataDays !== null && exp.dataDays <= 14) {
+      console.error(
+        exp.dataDays < 0
+          ? "[facebook] 🔴 انتهى الوصول — النشر واقف. شغّل: npm run setup-fb بتوكن جديد"
+          : `[facebook] ⚠️ الوصول ينتهي بعد ${exp.dataDays} يوم — شغّل: npm run setup-fb بتوكن جديد`
+      );
+    }
+
+    if (exp.tokenDays === null || exp.tokenDays > 20) return;   // التوكن نفسه بخير
 
     const r = await refreshToken(cfg);
     if (r.ok && r.token) {
       saveSettings({ fb_page_token: r.token });
-      console.log(`[facebook] انجدد التوكن تلقائياً — صالح ${r.days ?? "∞"} يوم`);
+      console.log(`[facebook] انجدد التوكن تلقائياً — صالح ${r.days || "∞"} يوم`);
     } else {
-      console.error(`[facebook] التوكن ينتهي بعد ${days} يوم وما قدرنا نجدده: ${r.error}`);
+      console.error(`[facebook] التوكن ينتهي بعد ${exp.tokenDays} يوم وما قدرنا نجدده: ${r.error}`);
     }
   } catch { /* ما نخلي فحص التوكن يوقف النشر */ }
 }

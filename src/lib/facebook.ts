@@ -118,28 +118,69 @@ export async function testConnection(s: Settings): Promise<{ page: string; id: s
 
 // ————— تجديد التوكن —————
 //
-// ميتا ألغت التوكن الدائمي: كل توكن صفحة عمره ٦٠ يوم كحد أقصى.
-// الحل إننا نبدّله بواحد جديد قبل ما ينتهي — وهذا ممكن بأي وقت
-// طالما التوكن الحالي ما انتهى بعد.
+// لتوكن الصفحة موعدين انتهاء، مو واحد:
+//
+//   expires_at              انتهاء التوكن نفسه. توكن الصفحة المشتق من
+//                           توكن مستخدم طويل الأمد يرجع ٠ = ما ينتهي أبداً.
+//   data_access_expires_at  انتهاء الوصول للبيانات. ميتا تحدده ٩٠ يوم من
+//                           وقت الموافقة، وما يتمدد بالاستخدام ولا بتبديل
+//                           التوكن — يتجدد بس لما تعيد الموافقة بفيسبوك.
+//
+// فالتوكن «الدائمي» يضل صالح شكلاً، بس الوصول يموت بعد ٩٠ يوم إذا ما
+// جددت الموافقة. لهذا ننتبه للموعدين، ونفرّق بينهن: الأول نقدر نجدده
+// تلقائياً، والثاني يحتاج تدخّلك.
 
 const KEY_EXP = "fb_token_expires_at";
+const KEY_DATA = "fb_data_expires_at";
 
-/** يقرأ تاريخ انتهاء التوكن من فيسبوك ويخزنه */
-export async function checkTokenExpiry(s: Settings): Promise<number> {
-  if (!s.fb_page_token) return 0;
-  const u = `${API}/debug_token?input_token=${encodeURIComponent(s.fb_page_token)}&access_token=${encodeURIComponent(s.fb_page_token)}`;
-  const res = await fetch(u, { signal: AbortSignal.timeout(20_000) });
-  const d = await res.json().catch(() => ({}));
-  const exp = Number(d?.data?.expires_at ?? 0);
-  setMeta(KEY_EXP, String(exp));
-  return exp;
+export interface ExpiryInfo {
+  /** يوم باقي على انتهاء التوكن نفسه — null يعني ما ينتهي */
+  tokenDays: number | null;
+  /** يوم باقي على انتهاء الوصول للبيانات — null يعني ما ينتهي */
+  dataDays: number | null;
+  /** الأقرب من الاثنين — null يعني ما بيه موعد أبداً */
+  days: number | null;
+  /** شنو اللي راح ينتهي أول: "token" أو "data" */
+  first: "token" | "data" | null;
 }
 
-/** كم يوم باقي على انتهاء التوكن (من آخر فحص) */
-export function daysUntilExpiry(): number | null {
+const toDays = (ts: number) => Math.floor((ts * 1000 - Date.now()) / 86_400_000);
+
+/** يقرأ موعدي الانتهاء من فيسبوك ويخزنهن */
+export async function checkTokenExpiry(s: Settings): Promise<ExpiryInfo> {
+  if (!s.fb_page_token) return { tokenDays: null, dataDays: null, days: null, first: null };
+
+  const t = encodeURIComponent(s.fb_page_token);
+  const res = await fetch(`${API}/debug_token?input_token=${t}&access_token=${t}`,
+    { signal: AbortSignal.timeout(20_000) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || d?.error) throw new Error(readError(d?.error, res.status));
+
+  setMeta(KEY_EXP, String(Number(d?.data?.expires_at ?? 0)));
+  setMeta(KEY_DATA, String(Number(d?.data?.data_access_expires_at ?? 0)));
+  return expiryInfo();
+}
+
+/** موعدي الانتهاء من آخر فحص */
+export function expiryInfo(): ExpiryInfo {
   const exp = Number(getMeta(KEY_EXP) || 0);
-  if (!exp) return null;
-  return Math.floor((exp * 1000 - Date.now()) / 86_400_000);
+  const dat = Number(getMeta(KEY_DATA) || 0);
+  const tokenDays = exp ? toDays(exp) : null;
+  const dataDays = dat ? toDays(dat) : null;
+
+  if (tokenDays === null && dataDays === null) {
+    return { tokenDays, dataDays, days: null, first: null };
+  }
+  const first: "token" | "data" =
+    dataDays === null ? "token"
+      : tokenDays === null ? "data"
+        : tokenDays <= dataDays ? "token" : "data";
+  return { tokenDays, dataDays, days: first === "token" ? tokenDays : dataDays, first };
+}
+
+/** كم يوم باقي على أقرب انتهاء (من آخر فحص) */
+export function daysUntilExpiry(): number | null {
+  return expiryInfo().days;
 }
 
 export interface RefreshResult { ok: boolean; token?: string; days?: number; error?: string }
@@ -166,8 +207,7 @@ export async function refreshToken(s: Settings): Promise<RefreshResult> {
     if (!d.access_token) return { ok: false, error: "ما رجع توكن جديد" };
 
     const exp = await checkTokenExpiry({ ...s, fb_page_token: d.access_token });
-    const days = exp ? Math.floor((exp * 1000 - Date.now()) / 86_400_000) : 0;
-    return { ok: true, token: d.access_token, days };
+    return { ok: true, token: d.access_token, days: exp.tokenDays ?? 0 };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

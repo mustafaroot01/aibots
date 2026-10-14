@@ -2,7 +2,7 @@ import { guardPage } from "@/lib/auth";
 import { getSettings, EFFORTS, MODELS, GEMINI_MODELS, PROVIDERS, listToText, channelsToText, settingsHealth } from "@/lib/settings";
 import { parseServiceAccount } from "@/lib/indexing";
 import { FORMATS, hoursUntilBlog } from "@/lib/blog";
-import { daysUntilExpiry } from "@/lib/facebook";
+import { expiryInfo } from "@/lib/facebook";
 import { listBlog } from "@/lib/db";
 import { searchJobs } from "@/lib/db";
 import { renderMessage } from "@/lib/publisher";
@@ -43,7 +43,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const ps = providerStatus();
   const blogLeft = s.blog_enabled ? hoursUntilBlog(s) : null;
   const { rows: blogPosts, total: blogTotal } = listBlog(5, 1);
-  const fbDays = daysUntilExpiry();
+  const fbExp = expiryInfo();
 
   const sample = searchJobs({ perPage: 1, page: 1 }).rows[0];
   const preview = sample
@@ -412,13 +412,19 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             </div>
           </div>
 
-          {fbDays !== null && (
-            <div className={`toast ${fbDays < 20 ? "bad" : ""}`} style={{ marginTop: 14 }}>
-              {fbDays < 0
-                ? "🔴 التوكن انتهت صلاحيته — ولّد واحد جديد"
-                : fbDays < 20
-                  ? `⚠️ التوكن ينتهي بعد ${fbDays} يوم — اضغط «جدّد التوكن»`
-                  : `التوكن صالح ${fbDays} يوم بعد`}
+          {fbExp.first !== null && (
+            <div className={`toast ${(fbExp.days ?? 99) < 20 ? "bad" : ""}`} style={{ marginTop: 14 }}>
+              {(fbExp.days ?? 0) < 0
+                ? fbExp.first === "data"
+                  ? "🔴 انتهى الوصول للبيانات — شغّل setup-fb بتوكن جديد من فيسبوك"
+                  : "🔴 التوكن انتهت صلاحيته — ولّد واحد جديد"
+                : (fbExp.days ?? 99) < 20
+                  ? fbExp.first === "data"
+                    ? `⚠️ الوصول ينتهي بعد ${fbExp.days} يوم — التجديد ما يصلحه، لازم توكن جديد من فيسبوك`
+                    : `⚠️ التوكن ينتهي بعد ${fbExp.days} يوم — اضغط «جدّد التوكن»`
+                  : fbExp.tokenDays === null
+                    ? `التوكن ما ينتهي · الوصول صالح ${fbExp.dataDays} يوم بعد`
+                    : `التوكن صالح ${fbExp.tokenDays} يوم · الوصول ${fbExp.dataDays ?? "∞"} يوم`}
             </div>
           )}
 
@@ -426,6 +432,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           <p className="hint" style={{ marginTop: 0 }}>
             إذا توكنك عنده تاريخ انتهاء، هذي الحقول تخلي النظام يجدده لحاله قبل ما ينتهي.
             تلكاهن بتطبيقك ← <b>Settings → Basic</b>. (توكن بلا انتهاء ما يحتاجهن.)
+            <br />
+            ملاحظة: «انتهاء الوصول» شي ثاني — ميتا تحدده ٩٠ يوم من وقت موافقتك،
+            وما يتمدد بالتجديد. لما يقرب، شغّل <b>npm run setup-fb</b> بتوكن جديد.
           </p>
           <div className="form-grid two">
             <div className="field">

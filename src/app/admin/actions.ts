@@ -9,7 +9,7 @@ import { attemptLogin, requireAdmin, safeBack, setLoginError, signOut, signOutEv
 import { getSettings, resetSettings, saveSettings, textToList, type Settings } from "@/lib/settings";
 import { ingestOnce, markForReclassify, processPending, publishQueued, runBlog } from "@/lib/ingest";
 import { publishJob, sendTestMessage, testConnection } from "@/lib/publisher";
-import { checkTokenExpiry, daysUntilExpiry, postToPage, refreshToken, testConnection as fbTest } from "@/lib/facebook";
+import { checkTokenExpiry, postToPage, refreshToken, testConnection as fbTest } from "@/lib/facebook";
 import { announce, newIndexNowKey, parseServiceAccount } from "@/lib/indexing";
 import { deleteBlogPost, listBlog, searchJobs } from "@/lib/db";
 import type { JobStatus } from "@/lib/types";
@@ -371,11 +371,12 @@ export async function fbCheckExpiryAction() {
   await requireAdmin();
   let msg: string;
   try {
-    const exp = await checkTokenExpiry(getSettings());
-    const days = daysUntilExpiry();
-    msg = !exp
-      ? "✅ التوكن بلا تاريخ انتهاء — ما يحتاج تجديد"
-      : `التوكن ينتهي بعد ${days} يوم`;
+    const e = await checkTokenExpiry(getSettings());
+    const parts = [
+      e.tokenDays === null ? "التوكن ما ينتهي" : `التوكن ينتهي بعد ${e.tokenDays} يوم`,
+      e.dataDays === null ? "والوصول ما ينتهي" : `والوصول ينتهي بعد ${e.dataDays} يوم`,
+    ];
+    msg = e.first === null ? "✅ التوكن بلا تاريخ انتهاء" : `${parts.join(" ")}`;
   } catch (e) {
     msg = `❌ ${e instanceof Error ? e.message : e}`;
   }
